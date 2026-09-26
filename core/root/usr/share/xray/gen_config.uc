@@ -99,6 +99,12 @@ function outbounds(proxy, config, manual_tproxy, bridge, extra_inbound, fakedns)
     for (let i in keys(outbound_balancers_all)) {
         push(result, ...server_outbound(config[substr(i, -9)], i, config));
     }
+    if (proxy["geodata_enable"] == "1") {
+        const geodata_outbound_server = proxy["geodata_outbound"];
+        if (geodata_outbound_server && geodata_outbound_server != "direct" && config[geodata_outbound_server]) {
+            push(result, ...server_outbound(config[geodata_outbound_server], sprintf("geodata_outbound:%s", geodata_outbound_server), config));
+        }
+    }
     return result;
 }
 
@@ -319,6 +325,40 @@ function burst_observatory_conf(observatory_list, general, extra_inbound, fakedn
     return null;
 }
 
+function geodata_conf(general, geodata_assets, config) {
+    if (general["geodata_enable"] != "1") {
+        return null;
+    }
+    let assets = [];
+    for (let a in geodata_assets) {
+        if (a["url"] && a["file"]) {
+            push(assets, {
+                url: a["url"],
+                file: a["file"]
+            });
+        }
+    }
+    const cron = general["geodata_cron"];
+    const outbound_server = general["geodata_outbound"];
+
+    let geodata_obj = {};
+    if (cron) {
+        geodata_obj["cron"] = cron;
+    }
+
+    if (outbound_server && outbound_server != "direct" && config[outbound_server]) {
+        geodata_obj["outbound"] = sprintf("geodata_outbound:%s", outbound_server);
+    } else {
+        geodata_obj["outbound"] = "direct";
+    }
+
+    if (length(assets) > 0) {
+        geodata_obj["assets"] = assets;
+    }
+
+    return geodata_obj;
+}
+
 function gen_config() {
     const config = load_config();
     const bridge = filter(values(config), v => v[".type"] == "bridge") || [];
@@ -326,10 +366,12 @@ function gen_config() {
     const extra_inbound = filter(values(config), v => v[".type"] == "extra_inbound") || [];
     const manual_tproxy = filter(values(config), v => v[".type"] == "manual_tproxy") || [];
     const observatory_list = filter(values(config), v => v[".type"] == "observatory") || [];
+    const geodata_assets = filter(values(config), v => v[".type"] == "geodata_asset") || [];
 
     const general = filter(values(config), k => k[".type"] == "general")[0] || {};
     const custom_configuration_hook = loadstring(general["custom_configuration_hook"] || "return i => i;")();
     const burst_obs = burst_observatory_conf(observatory_list, general, extra_inbound, fakedns);
+    const geodata = geodata_conf(general, geodata_assets, config);
     let result = {
         inbounds: inbounds(general, config, extra_inbound),
         outbounds: outbounds(general, config, manual_tproxy, bridge, extra_inbound, fakedns),
@@ -351,6 +393,9 @@ function gen_config() {
     };
     if (burst_obs) {
         result["burstObservatory"] = burst_obs;
+    }
+    if (geodata) {
+        result["geodata"] = geodata;
     }
     const bridges_deprecated = bridges(bridge);
     if (length(bridges_deprecated) > 0) {

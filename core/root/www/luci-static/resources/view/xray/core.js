@@ -718,6 +718,79 @@ return view.extend({
         o = ss.option(form.Value, "dest", _("Destination Address"));
         o.datatype = 'hostport';
 
+        s.tab('geodata', _('Geodata'));
+
+        o = s.taboption('geodata', form.Flag, 'geodata_enable', _('Enable Geodata Updater'), _('Reloads geodata files on a schedule, and can download new .dat files before reloading.'));
+
+        o = s.taboption('geodata', form.Value, 'geodata_cron', _('Cron Expression'), _('A standard 5-field cron expression (e.g. <code>0 4 * * *</code>). If empty, scheduled update is disabled.'));
+        o.placeholder = '0 4 * * *';
+        o.depends('geodata_enable', '1');
+
+        let geodata_outbound = s.taboption('geodata', form.ListValue, 'geodata_outbound', _('Outbound Proxy'), _('Outbound server to use for downloading geodata assets. If not selected, direct connection is used.'));
+        geodata_outbound.datatype = 'uciname';
+        geodata_outbound.value('', _('Direct (no proxy)'));
+        geodata_outbound.default = '';
+        geodata_outbound.depends('geodata_enable', '1');
+
+        o = s.taboption('geodata', form.SectionValue, 'geodata_assets_section', form.GridSection, 'geodata_asset', _('Geodata Assets'), _('Configure geodata asset files (e.g. <code>geoip.dat</code>, <code>geosite.dat</code>) to download and update automatically.'));
+        o.depends('geodata_enable', '1');
+
+        ss = o.subsection;
+        ss.sortable = false;
+        ss.anonymous = true;
+        ss.addremove = true;
+        ss.nodescriptions = true;
+
+        o = ss.option(form.Value, 'file', _('File'), _('Filename in the asset directory (e.g. <code>geoip.dat</code> or <code>geosite.dat</code>).'));
+        o.placeholder = 'geoip.dat';
+        o.rmempty = false;
+
+        o = ss.option(form.Value, 'url', _('URL'), _('Download URL for the asset file. Must start with <code>https://</code>.'));
+        o.placeholder = 'https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat';
+        o.rmempty = false;
+        o.validate = function(section_id, value) {
+            if (!value || !value.startsWith('https://')) {
+                return _('URL must start with https://');
+            }
+            return true;
+        };
+
+        let filesize = ss.option(form.DummyValue, 'filesize', _('File Size'));
+        filesize.modalonly = false;
+        filesize.textvalue = function(section_id) {
+            const filename = uci.get(config_data, section_id, 'file');
+            if (!filename) {
+                return '-';
+            }
+            const files = Array.isArray(load_result[1]) ? load_result[1] : [];
+            for (const f of files) {
+                if (f.name == filename) {
+                    return '%.2mB'.format(f.size);
+                }
+            }
+            return E('i', _('Not found'));
+        };
+
+        let filemtime = ss.option(form.DummyValue, 'filemtime', _('Modification Time'));
+        filemtime.modalonly = false;
+        filemtime.textvalue = function(section_id) {
+            const filename = uci.get(config_data, section_id, 'file');
+            if (!filename) {
+                return '-';
+            }
+            const files = Array.isArray(load_result[1]) ? load_result[1] : [];
+            for (const f of files) {
+                if (f.name == filename) {
+                    if (!f.mtime) {
+                        return '-';
+                    }
+                    const mtime = (f.mtime > 1e11) ? f.mtime : f.mtime * 1000;
+                    return new Date(mtime).toLocaleString();
+                }
+            }
+            return E('i', _('Not found'));
+        };
+
         s.tab('extra_options', _('Extra Options'));
 
         o = s.taboption('extra_options', form.Value, 'xray_bin', _('Xray Executable Path'));
@@ -806,6 +879,9 @@ return view.extend({
             for (const v of servers) {
                 selection.value(v[".name"], server_alias(v));
             }
+        }
+        for (const v of servers) {
+            geodata_outbound.value(v[".name"], server_alias(v));
         }
         return m.render();
     }
