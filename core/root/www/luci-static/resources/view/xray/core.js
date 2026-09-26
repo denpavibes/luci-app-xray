@@ -170,7 +170,7 @@ return view.extend({
         let udp_balancer_v6 = s.taboption('general', form.MultiValue, 'udp_balancer_v6', _('UDP Server (IPv6)'), _("Select multiple outbound servers to enable load balancing. Select none to disable UDP Outbound."));
         udp_balancer_v6.datatype = "uciname";
 
-        let general_balancer_strategy = s.taboption('general', form.Value, 'general_balancer_strategy', _('Balancer Strategy'), _('Strategy <code>leastPing</code> requires observatory (see "Extra Options" tab) to be enabled.'));
+        let general_balancer_strategy = s.taboption('general', form.Value, 'general_balancer_strategy', _('Balancer Strategy'), _('Strategy <code>leastPing</code> requires observatory to be configured (see "Observatory" under "Outbound Routing").'));
         general_balancer_strategy.value("random");
         general_balancer_strategy.value("leastPing");
         general_balancer_strategy.value("roundRobin");
@@ -316,7 +316,7 @@ return view.extend({
         destination.datatype = "uciname";
         destination.textvalue = destination_format(config_data, "destination", "specify_outbound", 60);
 
-        let balancer_strategy = extra_inbounds.option(form.Value, 'balancer_strategy', _('Balancer Strategy'), _('Strategy <code>leastPing</code> requires observatory (see "Extra Options" tab) to be enabled.'));
+        let balancer_strategy = extra_inbounds.option(form.Value, 'balancer_strategy', _('Balancer Strategy'), _('Strategy <code>leastPing</code> requires observatory to be configured (see "Observatory" under "Outbound Routing").'));
         balancer_strategy.depends("specify_outbound", "1");
         balancer_strategy.value("random");
         balancer_strategy.value("leastPing");
@@ -513,7 +513,7 @@ return view.extend({
         fake_dns_forward_server_udp.datatype = "uciname";
         fake_dns_forward_server_udp.textvalue = destination_format(config_data, "fake_dns_forward_server_udp", null, 40);
 
-        let fake_dns_balancer_strategy = fs.option(form.Value, 'fake_dns_balancer_strategy', _('Balancer Strategy'), _('Strategy <code>leastPing</code> requires observatory (see "Extra Options" tab) to be enabled.'));
+        let fake_dns_balancer_strategy = fs.option(form.Value, 'fake_dns_balancer_strategy', _('Balancer Strategy'), _('Strategy <code>leastPing</code> requires observatory to be configured (see "Observatory" under "Outbound Routing").'));
         fake_dns_balancer_strategy.value("random");
         fake_dns_balancer_strategy.value("leastPing");
         fake_dns_balancer_strategy.value("roundRobin");
@@ -616,6 +616,62 @@ return view.extend({
         force_forward_server_udp.datatype = "uciname";
         force_forward_server_udp.modalonly = true;
 
+        o = s.taboption('outbound_routing', form.SectionValue, "observatory_section", form.GridSection, 'observatory', _('Observatory'), _('Probe connection status and latency of outbound proxies using HTTPing.'));
+
+        ss = o.subsection;
+        ss.sortable = false;
+        ss.anonymous = true;
+        ss.addremove = true;
+        ss.nodescriptions = true;
+
+        o = ss.option(form.ListValue, 'type', _('Type'));
+        o.value('observatory', _('Observatory (background)'));
+        o.value('burstObservatory', _('Burst Observatory'));
+        o.default = 'observatory';
+        o.rmempty = false;
+
+        o = ss.option(form.Value, 'probe_url', _('Probe URL'), _('The URL used to probe the connection status of the outbound proxy.'));
+        o.placeholder = 'https://www.google.com/generate_204';
+        o.rmempty = false;
+
+        o = ss.option(form.Value, 'probe_interval', _('Probe Interval'), _('The interval for initiating probes. For example: <code>10s</code>, <code>100ms</code>, <code>1m</code>.'));
+        o.placeholder = '10s';
+        o.depends('type', 'observatory');
+        o.modalonly = true;
+
+        o = ss.option(form.Flag, 'enable_concurrency', _('Enable Concurrency'), _('Probe all matched outbound proxies concurrently.'));
+        o.depends('type', 'observatory');
+        o.modalonly = true;
+
+        o = ss.option(form.Value, 'connectivity', _('Connectivity URL'), _('The URL used to check local network connectivity before probing outbounds.'));
+        o.placeholder = 'https://connectivitycheck.gstatic.com/generate_204';
+        o.depends('type', 'burstObservatory');
+        o.modalonly = true;
+
+        o = ss.option(form.Value, 'interval', _('Check Interval'), _('Health check interval between consecutive check cycles. For example: <code>1m</code>, <code>100s</code>.'));
+        o.placeholder = '1m';
+        o.depends('type', 'burstObservatory');
+        o.modalonly = true;
+
+        o = ss.option(form.Value, 'sampling', _('Sampling Count'), _('Amount of recent ping results kept for calculation.'));
+        o.datatype = 'uinteger';
+        o.placeholder = '3';
+        o.depends('type', 'burstObservatory');
+        o.modalonly = true;
+
+        o = ss.option(form.Value, 'timeout', _('Timeout'), _('Maximum time allowed for a single check request. For example: <code>3s</code>, <code>5s</code>.'));
+        o.placeholder = '5s';
+        o.depends('type', 'burstObservatory');
+        o.modalonly = true;
+
+        o = ss.option(form.ListValue, 'http_method', _('HTTP Method'), _('HTTP method used to make probe requests.'));
+        o.value('HEAD', 'HEAD');
+        o.value('GET', 'GET');
+        o.value('POST', 'POST');
+        o.default = 'HEAD';
+        o.depends('type', 'burstObservatory');
+        o.modalonly = true;
+
         s.tab('xray_server', _('HTTPS Server'));
 
         o = s.taboption('xray_server', form.Flag, 'web_server_enable', _('Enable Xray HTTPS Server'), _("This will start a HTTPS server which serves both as an inbound for Xray and a reverse proxy web server."));
@@ -682,8 +738,6 @@ return view.extend({
         o = s.taboption('extra_options', form.Flag, 'xray_api', _('Enable Xray API Service'), _('Xray API Service uses port 8080 and GRPC protocol. Also callable via <code>xray api</code> or <code>ubus call xray</code>. See <a href="https://xtls.github.io/document/command.html#xray-api">here</a> for help.'));
 
         o = s.taboption('extra_options', form.Flag, 'stats', _('Enable Statistics'), _('Enable statistics of inbounds / outbounds data. Use Xray API to query values.'));
-
-        o = s.taboption('extra_options', form.Flag, 'observatory', _('Enable Observatory'), _('Enable latency measurement for TCP and UDP outbounds.'));
 
         o = s.taboption('extra_options', form.Flag, 'fw4_counter', _('Enable Firewall Counters'), _('Add <a href="/cgi-bin/luci/admin/status/nftables">counters to firewall4</a> for transparent proxy rules. (Not supported in all OpenWrt versions. )'));
 

@@ -243,12 +243,56 @@ function balancers(proxy, extra_inbound, fakedns) {
     ];
 };
 
-function observatory(proxy, manual_tproxy) {
-    if (proxy["observatory"] == "1") {
+function observatory_subject_selector(manual_tproxy) {
+    return [
+        "tcp_balancer_v4@balancer_outbound",
+        "udp_balancer_v4@balancer_outbound",
+        "tcp_balancer_v6@balancer_outbound",
+        "udp_balancer_v6@balancer_outbound",
+        "extra_inbound",
+        "fake_dns",
+        "direct",
+        ...manual_tproxy_outbound_tags(manual_tproxy)
+    ];
+}
+
+function observatory_conf(observatory_list, manual_tproxy) {
+    const obs = filter(observatory_list, v => v["type"] == "observatory")[0];
+    if (obs) {
         return {
-            subjectSelector: ["tcp_balancer_v4@balancer_outbound", "udp_balancer_v4@balancer_outbound", "tcp_balancer_v6@balancer_outbound", "udp_balancer_v6@balancer_outbound", "extra_inbound", "fake_dns", "direct", ...manual_tproxy_outbound_tags(manual_tproxy)],
-            probeInterval: "100ms",
-            probeUrl: "http://www.apple.com/library/test/success.html"
+            subjectSelector: observatory_subject_selector(manual_tproxy),
+            probeInterval: obs["probe_interval"] || "10s",
+            probeUrl: obs["probe_url"] || "https://www.google.com/generate_204",
+            enableConcurrency: obs["enable_concurrency"] == "1"
+        };
+    }
+    return null;
+}
+
+function burst_observatory_conf(observatory_list, manual_tproxy) {
+    const burst = filter(observatory_list, v => v["type"] == "burstObservatory")[0];
+    if (burst) {
+        let ping_config = {
+            destination: burst["probe_url"] || "https://connectivitycheck.gstatic.com/generate_204"
+        };
+        if (burst["connectivity"]) {
+            ping_config["connectivity"] = burst["connectivity"];
+        }
+        if (burst["interval"]) {
+            ping_config["interval"] = burst["interval"];
+        }
+        if (burst["sampling"]) {
+            ping_config["sampling"] = int(burst["sampling"]);
+        }
+        if (burst["timeout"]) {
+            ping_config["timeout"] = burst["timeout"];
+        }
+        if (burst["http_method"]) {
+            ping_config["httpMethod"] = burst["http_method"];
+        }
+        return {
+            subjectSelector: observatory_subject_selector(manual_tproxy),
+            pingConfig: ping_config
         };
     }
     return null;
@@ -260,9 +304,11 @@ function gen_config() {
     const fakedns = filter(values(config), v => v[".type"] == "fakedns") || [];
     const extra_inbound = filter(values(config), v => v[".type"] == "extra_inbound") || [];
     const manual_tproxy = filter(values(config), v => v[".type"] == "manual_tproxy") || [];
+    const observatory_list = filter(values(config), v => v[".type"] == "observatory") || [];
 
     const general = filter(values(config), k => k[".type"] == "general")[0] || {};
     const custom_configuration_hook = loadstring(general["custom_configuration_hook"] || "return i => i;")();
+    const burst_obs = burst_observatory_conf(observatory_list, manual_tproxy);
     let result = {
         inbounds: inbounds(general, config, extra_inbound),
         outbounds: outbounds(general, config, manual_tproxy, bridge, extra_inbound, fakedns),
@@ -275,13 +321,16 @@ function gen_config() {
         stats: general["stats"] == "1" ? {
             place: "holder"
         } : null,
-        observatory: observatory(general, manual_tproxy),
+        observatory: observatory_conf(observatory_list, manual_tproxy),
         routing: {
             domainStrategy: general["routing_domain_strategy"] || "AsIs",
             rules: rules(general, bridge, manual_tproxy, extra_inbound, fakedns),
             balancers: balancers(general, extra_inbound, fakedns)
         }
     };
+    if (burst_obs) {
+        result["burstObservatory"] = burst_obs;
+    }
     const bridges_deprecated = bridges(bridge);
     if (length(bridges_deprecated) > 0) {
         result["reverse"] = {

@@ -230,31 +230,66 @@ function observatory(vars, config) {
         return [];
     }
     const now_timestamp = new Date().getTime() / 1000;
+    const entries = Object.entries(vars["observatory"]);
+    const has_health_ping = entries.some(([_, v]) => v["health_ping"] || v["healthPing"]);
+    const is_burst = has_health_ping || (uci.sections(config, "observatory") || []).some(s => s.type === "burstObservatory");
+
+    const titles = has_health_ping ? [
+        E('th', { 'class': 'th' }, _('Tag')),
+        E('th', { 'class': 'th' }, _('Latency')),
+        E('th', { 'class': 'th' }, _('Samples (Loss)')),
+        E('th', { 'class': 'th' }, _('Min / Avg / Max')),
+        E('th', { 'class': 'th' }, _('Last check')),
+    ] : [
+        E('th', { 'class': 'th' }, _('Tag')),
+        E('th', { 'class': 'th' }, _('Latency')),
+        E('th', { 'class': 'th' }, _('Last seen')),
+        E('th', { 'class': 'th' }, _('Last check')),
+    ];
+
     return [
-        E('h3', _('Outbound Observatory')),
-        E('div', { 'class': 'cbi-map-descr' }, _("Availability of outbound servers are probed every few seconds.")),
+        E('h3', is_burst ? _('Outbound Observatory (Burst)') : _('Outbound Observatory')),
+        E('div', { 'class': 'cbi-map-descr' }, is_burst ?
+            _("Availability and latency of outbound servers are monitored using burst connection probing.") :
+            _("Availability of outbound servers are probed every few seconds.")),
         E('table', { 'class': 'table' }, [
-            E('tr', { 'class': 'tr table-titles' }, [
-                E('th', { 'class': 'th' }, _('Tag')),
-                E('th', { 'class': 'th' }, _('Latency')),
-                E('th', { 'class': 'th' }, _('Last seen')),
-                E('th', { 'class': 'th' }, _('Last check')),
-            ]), ...Object.entries(vars["observatory"]).map((v, index, arr) => E('tr', { 'class': `tr cbi-rowstyle-${index % 2 + 1}` }, [
-                E('td', { 'class': 'td' }, get_outbound_description(config, v[0])),
-                E('td', { 'class': 'td' }, function (c) {
-                    if (c[1]["alive"]) {
-                        return c[1]["delay"] + ' ' + _("ms");
-                    }
-                    return _("<i>unreachable</i>");
-                }(v)),
-                E('td', { 'class': 'td' }, function (c) {
-                    if (c[1]["last_seen_time"] === undefined) {
-                        return _("<i>never</i>");
-                    }
-                    return '%d'.format(greater_than_zero(now_timestamp - c[1]["last_seen_time"])) + _('s ago');
-                }(v)),
-                E('td', { 'class': 'td' }, '%d'.format(greater_than_zero(now_timestamp - v[1]["last_try_time"])) + _('s ago')),
-            ]))
+            E('tr', { 'class': 'tr table-titles' }, titles),
+            ...entries.map((v, index) => {
+                const c = v[1];
+                const latency = c["alive"] ? (c["delay"] + ' ' + _("ms")) : _("<i>unreachable</i>");
+                if (has_health_ping) {
+                    const hp = c["health_ping"] || c["healthPing"];
+                    const samples = (hp && hp.all) ?
+                        `${hp.all - (hp.fail || 0)}/${hp.all} (${Math.round(((hp.fail || 0) / hp.all) * 100)}% loss)` : '-';
+                    const min_avg_max = (hp && hp.min !== undefined && hp.average !== undefined && hp.max !== undefined) ?
+                        `${Math.round(hp.min / 1000000)} / ${Math.round(hp.average / 1000000)} / ${Math.round(hp.max / 1000000)} ms` : '-';
+                    const last_check = (c["last_try_time"] && c["last_try_time"] > 0) ?
+                        ('%d'.format(greater_than_zero(now_timestamp - c["last_try_time"])) + _('s ago')) :
+                        _("<i>active</i>");
+
+                    return E('tr', { 'class': `tr cbi-rowstyle-${index % 2 + 1}` }, [
+                        E('td', { 'class': 'td' }, get_outbound_description(config, v[0])),
+                        E('td', { 'class': 'td' }, latency),
+                        E('td', { 'class': 'td' }, samples),
+                        E('td', { 'class': 'td' }, min_avg_max),
+                        E('td', { 'class': 'td' }, last_check),
+                    ]);
+                } else {
+                    const last_seen = (c["last_seen_time"] && c["last_seen_time"] > 0) ?
+                        ('%d'.format(greater_than_zero(now_timestamp - c["last_seen_time"])) + _('s ago')) :
+                        _("<i>never</i>");
+                    const last_check = (c["last_try_time"] && c["last_try_time"] > 0) ?
+                        ('%d'.format(greater_than_zero(now_timestamp - c["last_try_time"])) + _('s ago')) :
+                        _("<i>never</i>");
+
+                    return E('tr', { 'class': `tr cbi-rowstyle-${index % 2 + 1}` }, [
+                        E('td', { 'class': 'td' }, get_outbound_description(config, v[0])),
+                        E('td', { 'class': 'td' }, latency),
+                        E('td', { 'class': 'td' }, last_seen),
+                        E('td', { 'class': 'td' }, last_check),
+                    ]);
+                }
+            })
         ])
     ];
 };
@@ -324,8 +359,14 @@ return view.extend({
             ]);
         }
         const version = load_result[1].split(" ");
-        const stats_available = bool_translate(uci.get_first(config, "general", "stats"));
-        const observatory_available = bool_translate(uci.get_first(config, "general", "observatory"));
+        const observatory_sections = uci.sections(config, "observatory") || [];
+        let observatory_available = bool_translate(null);
+        if (observatory_sections.length > 0) {
+            const obs_type = observatory_sections[0].type || "observatory";
+            observatory_available = obs_type === "burstObservatory" ? _("available (burst)") : _("available");
+        } else if (uci.get_first(config, "general", "observatory") === "1") {
+            observatory_available = _("available");
+        }
         const info = E('p', { 'class': 'cbi-map-descr' }, `${version[0]} Version ${version[1]} (${version[2]}) Built ${new Date(version[3] * 1000).toLocaleString()}. Statistics: ${stats_available}. Observatory: ${observatory_available}.`);
         const detail = E('div', {});
         poll.add(function () {
