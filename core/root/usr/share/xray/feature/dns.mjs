@@ -147,7 +147,15 @@ export function dns_server_outbounds(proxy) {
         {
             protocol: "dns",
             settings: {
-                nonIPQuery: "skip"
+                rules: [
+                    {
+                        action: "hijack",
+                        qType: "1,28"
+                    },
+                    {
+                        action: "direct"
+                    }
+                ]
             },
             streamSettings: {
                 sockopt: {
