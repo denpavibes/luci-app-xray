@@ -359,6 +359,7 @@ return view.extend({
             ]);
         }
         const version = load_result[1].split(" ");
+        const stats_available = bool_translate(uci.get_first(config, "general", "stats"));
         const observatory_sections = uci.sections(config, "observatory") || [];
         let observatory_available = bool_translate(null);
         if (observatory_sections.length > 0) {
