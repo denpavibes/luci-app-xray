@@ -243,24 +243,45 @@ function balancers(proxy, extra_inbound, fakedns) {
     ];
 };
 
-function observatory_subject_selector(manual_tproxy) {
-    return [
-        "tcp_balancer_v4@balancer_outbound",
-        "udp_balancer_v4@balancer_outbound",
-        "tcp_balancer_v6@balancer_outbound",
-        "udp_balancer_v6@balancer_outbound",
-        "extra_inbound",
-        "fake_dns",
-        "direct",
-        ...manual_tproxy_outbound_tags(manual_tproxy)
-    ];
+function is_observing_strategy(strategy) {
+    return strategy == "leastPing" || strategy == "leastLoad";
 }
 
-function observatory_conf(observatory_list, manual_tproxy) {
+function observatory_subject_selector(general, extra_inbound, fakedns) {
+    let result = ["direct"];
+    const general_strategy = general["general_balancer_strategy"] || "random";
+    if (is_observing_strategy(general_strategy)) {
+        for (let b in ["tcp_balancer_v4", "udp_balancer_v4", "tcp_balancer_v6", "udp_balancer_v6"]) {
+            if (length(general[b] || []) > 0) {
+                push(result, `${b}@balancer_outbound`);
+            }
+        }
+    }
+    for (let e in extra_inbound) {
+        if (e["specify_outbound"] == "1" && is_observing_strategy(e["balancer_strategy"])) {
+            if (length(e["destination"] || []) > 0) {
+                push(result, `extra_inbound:${e[".name"]}@balancer_outbound`);
+            }
+        }
+    }
+    for (let f in fakedns) {
+        if (is_observing_strategy(f["fake_dns_balancer_strategy"])) {
+            if (length(f["fake_dns_forward_server_tcp"] || []) > 0) {
+                push(result, `fake_dns_tcp:${f[".name"]}@balancer_outbound`);
+            }
+            if (length(f["fake_dns_forward_server_udp"] || []) > 0) {
+                push(result, `fake_dns_udp:${f[".name"]}@balancer_outbound`);
+            }
+        }
+    }
+    return result;
+}
+
+function observatory_conf(observatory_list, general, extra_inbound, fakedns) {
     const obs = filter(observatory_list, v => v["type"] == "observatory")[0];
     if (obs) {
         return {
-            subjectSelector: observatory_subject_selector(manual_tproxy),
+            subjectSelector: observatory_subject_selector(general, extra_inbound, fakedns),
             probeInterval: obs["probe_interval"] || "10s",
             probeUrl: obs["probe_url"] || "https://www.google.com/generate_204",
             enableConcurrency: obs["enable_concurrency"] == "1"
@@ -269,7 +290,7 @@ function observatory_conf(observatory_list, manual_tproxy) {
     return null;
 }
 
-function burst_observatory_conf(observatory_list, manual_tproxy) {
+function burst_observatory_conf(observatory_list, general, extra_inbound, fakedns) {
     const burst = filter(observatory_list, v => v["type"] == "burstObservatory")[0];
     if (burst) {
         let ping_config = {
@@ -291,7 +312,7 @@ function burst_observatory_conf(observatory_list, manual_tproxy) {
             ping_config["httpMethod"] = burst["http_method"];
         }
         return {
-            subjectSelector: observatory_subject_selector(manual_tproxy),
+            subjectSelector: observatory_subject_selector(general, extra_inbound, fakedns),
             pingConfig: ping_config
         };
     }
@@ -308,7 +329,7 @@ function gen_config() {
 
     const general = filter(values(config), k => k[".type"] == "general")[0] || {};
     const custom_configuration_hook = loadstring(general["custom_configuration_hook"] || "return i => i;")();
-    const burst_obs = burst_observatory_conf(observatory_list, manual_tproxy);
+    const burst_obs = burst_observatory_conf(observatory_list, general, extra_inbound, fakedns);
     let result = {
         inbounds: inbounds(general, config, extra_inbound),
         outbounds: outbounds(general, config, manual_tproxy, bridge, extra_inbound, fakedns),
@@ -321,7 +342,7 @@ function gen_config() {
         stats: general["stats"] == "1" ? {
             place: "holder"
         } : null,
-        observatory: observatory_conf(observatory_list, manual_tproxy),
+        observatory: observatory_conf(observatory_list, general, extra_inbound, fakedns),
         routing: {
             domainStrategy: general["routing_domain_strategy"] || "AsIs",
             rules: rules(general, bridge, manual_tproxy, extra_inbound, fakedns),
