@@ -170,9 +170,10 @@ return view.extend({
         let udp_balancer_v6 = s.taboption('general', form.MultiValue, 'udp_balancer_v6', _('UDP Server (IPv6)'), _("Select multiple outbound servers to enable load balancing. Select none to disable UDP Outbound."));
         udp_balancer_v6.datatype = "uciname";
 
-        let general_balancer_strategy = s.taboption('general', form.Value, 'general_balancer_strategy', _('Balancer Strategy'), _('Strategy <code>leastPing</code> requires observatory to be configured (see "Observatory" under "Outbound Routing").'));
+        let general_balancer_strategy = s.taboption('general', form.Value, 'general_balancer_strategy', _('Balancer Strategy'), _('Strategy <code>leastPing</code> requires observatory, and <code>leastLoad</code> requires burstObservatory (see "Observatory" under "Outbound Routing").'));
         general_balancer_strategy.value("random");
         general_balancer_strategy.value("leastPing");
+        general_balancer_strategy.value("leastLoad");
         general_balancer_strategy.value("roundRobin");
         general_balancer_strategy.default = "random";
         general_balancer_strategy.rmempty = false;
@@ -316,10 +317,11 @@ return view.extend({
         destination.datatype = "uciname";
         destination.textvalue = destination_format(config_data, "destination", "specify_outbound", 60);
 
-        let balancer_strategy = extra_inbounds.option(form.Value, 'balancer_strategy', _('Balancer Strategy'), _('Strategy <code>leastPing</code> requires observatory to be configured (see "Observatory" under "Outbound Routing").'));
+        let balancer_strategy = extra_inbounds.option(form.Value, 'balancer_strategy', _('Balancer Strategy'), _('Strategy <code>leastPing</code> requires observatory, and <code>leastLoad</code> requires burstObservatory (see "Observatory" under "Outbound Routing").'));
         balancer_strategy.depends("specify_outbound", "1");
         balancer_strategy.value("random");
         balancer_strategy.value("leastPing");
+        balancer_strategy.value("leastLoad");
         balancer_strategy.value("roundRobin");
         balancer_strategy.default = "random";
         balancer_strategy.rmempty = false;
@@ -513,9 +515,10 @@ return view.extend({
         fake_dns_forward_server_udp.datatype = "uciname";
         fake_dns_forward_server_udp.textvalue = destination_format(config_data, "fake_dns_forward_server_udp", null, 40);
 
-        let fake_dns_balancer_strategy = fs.option(form.Value, 'fake_dns_balancer_strategy', _('Balancer Strategy'), _('Strategy <code>leastPing</code> requires observatory to be configured (see "Observatory" under "Outbound Routing").'));
+        let fake_dns_balancer_strategy = fs.option(form.Value, 'fake_dns_balancer_strategy', _('Balancer Strategy'), _('Strategy <code>leastPing</code> requires observatory, and <code>leastLoad</code> requires burstObservatory (see "Observatory" under "Outbound Routing").'));
         fake_dns_balancer_strategy.value("random");
         fake_dns_balancer_strategy.value("leastPing");
+        fake_dns_balancer_strategy.value("leastLoad");
         fake_dns_balancer_strategy.value("roundRobin");
         fake_dns_balancer_strategy.default = "random";
         fake_dns_balancer_strategy.rmempty = false;
