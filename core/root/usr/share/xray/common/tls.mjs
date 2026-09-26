@@ -58,16 +58,15 @@ export function tls_inbound_settings(proxy, protocol_name) {
 };
 
 export function reality_outbound_settings(server, protocol) {
-    let result = {
+    return {
         show: server[protocol + "_reality_show"] === "1",
         fingerprint: server[protocol + "_reality_fingerprint"],
         serverName: server[protocol + "_reality_server_name"],
         publicKey: server[protocol + "_reality_public_key"],
         shortId: server[protocol + "_reality_short_id"],
         spiderX: server[protocol + "_reality_spider_x"],
+        mldsa65Verify: server[protocol + "_reality_mldsa65_verify"],
     };
-
-    return result;
 };
 
 export function reality_inbound_settings(proxy, protocol_name) {

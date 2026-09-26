@@ -159,6 +159,10 @@ function add_flow_and_stream_security_conf(s, tab_name, depends_field_name, prot
             o = s.taboption(tab_name, form.Value, `${protocol_name}_reality_spider_x`, _(`[${protocol_name}][reality] SpiderX`));
             o.depends(`${protocol_name}_tls`, "reality");
             o.modalonly = true;
+
+            o = s.taboption(tab_name, form.Value, `${protocol_name}_reality_mldsa65_verify`, _(`[${protocol_name}][reality] mldsa65Verify`));
+            o.depends(`${protocol_name}_tls`, "reality");
+            o.modalonly = true;
         }
     }
 }
