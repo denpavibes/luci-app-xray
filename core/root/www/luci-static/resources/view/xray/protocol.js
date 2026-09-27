@@ -83,12 +83,31 @@ function add_flow_and_stream_security_conf(s, tab_name, depends_field_name, prot
             dep_reality_vision_udp443[`${protocol_name}_tls`] = "reality";
             dep_reality_vision_udp443[`${protocol_name}_flow_reality`] = "xtls-rprx-vision-udp443";
 
-            o = s.taboption(tab_name, form.DynamicList, `${protocol_name}_testseed`, _(`[${protocol_name}] testseed`));
-            o.datatype = "uinteger";
+            o = s.taboption(tab_name, form.Value, `${protocol_name}_testseed`, _(`[${protocol_name}] testseed`), _("4 non-negative integers separated by comma or space, e.g. <code>900, 400, 900, 256</code>"));
+            o.placeholder = "900, 400, 900, 256";
             o.depends(dep_tls_vision);
             o.depends(dep_tls_vision_udp443);
             o.depends(dep_reality_vision);
             o.depends(dep_reality_vision_udp443);
+            o.validate = function (section_id, value) {
+                if (!value || value.trim() === "") {
+                    return true;
+                }
+                let s = value.trim();
+                if (s.startsWith("[") && s.endsWith("]")) {
+                    s = s.substring(1, s.length - 1);
+                }
+                const parts = s.split(/[\s,]+/).filter(x => x !== "");
+                if (parts.length !== 4) {
+                    return _("testseed must contain exactly 4 integers (e.g. 900, 400, 900, 256)");
+                }
+                for (const p of parts) {
+                    if (!/^\d+$/.test(p) || Number(p) > 4294967295) {
+                        return _("testseed elements must be non-negative integers (uint32)");
+                    }
+                }
+                return true;
+            };
             o.rmempty = true;
             o.modalonly = true;
 

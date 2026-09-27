@@ -41,9 +41,11 @@ export function vless_outbound(server, tag) {
             if (type(server["vless_testseed"]) === "array") {
                 parsed_testseed = map(filter(server["vless_testseed"], v => v != null && v !== ""), v => int(v));
             } else if (server["vless_testseed"] !== "") {
-                parsed_testseed = [int(server["vless_testseed"])];
+                let s = replace(replace(server["vless_testseed"], "[", ""), "]", "");
+                let parts = split(replace(s, " ", ","), ",");
+                parsed_testseed = map(filter(parts, v => length(trim(v)) > 0), v => int(trim(v)));
             }
-            if (length(parsed_testseed) > 0) {
+            if (length(parsed_testseed) === 4) {
                 testseed = parsed_testseed;
             }
         }
