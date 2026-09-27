@@ -24,26 +24,58 @@ export function vless_outbound(server, tag) {
     const stream_settings_object = stream_settings(server, "vless", tag);
     const stream_settings_result = stream_settings_object["stream_settings"];
     const dialer_proxy = stream_settings_object["dialer_proxy"];
+
+    let user = {
+        email: server["username"],
+        id: server["password"],
+        flow: flow,
+        encryption: server["vless_encryption"] || "none"
+    };
+
+    let testpre = null;
+    let testseed = null;
+
+    if (flow == "xtls-rprx-vision" || flow == "xtls-rprx-vision-udp443") {
+        if (server["vless_testseed"] != null) {
+            let parsed_testseed = [];
+            if (type(server["vless_testseed"]) === "array") {
+                parsed_testseed = map(filter(server["vless_testseed"], v => v != null && v !== ""), v => int(v));
+            } else if (server["vless_testseed"] !== "") {
+                parsed_testseed = [int(server["vless_testseed"])];
+            }
+            if (length(parsed_testseed) > 0) {
+                testseed = parsed_testseed;
+            }
+        }
+        if (server["vless_testpre"] != null && server["vless_testpre"] !== "") {
+            testpre = int(server["vless_testpre"]);
+        }
+    }
+
+    let outbound_settings = {
+        vnext: map(port_array(server["server_port"]), function (v) {
+            return {
+                address: server["server"],
+                port: v,
+                users: [
+                    user
+                ]
+            };
+        })
+    };
+
+    if (testpre != null) {
+        outbound_settings["testpre"] = testpre;
+    }
+    if (testseed != null) {
+        outbound_settings["testseed"] = testseed;
+    }
+
     return {
         outbound: {
             protocol: "vless",
             tag: tag,
-            settings: {
-                vnext: map(port_array(server["server_port"]), function (v) {
-                    return {
-                        address: server["server"],
-                        port: v,
-                        users: [
-                            {
-                                email: server["username"],
-                                id: server["password"],
-                                flow: flow,
-                                encryption: server["vless_encryption"] || "none"
-                            }
-                        ]
-                    };
-                })
-            },
+            settings: outbound_settings,
             streamSettings: stream_settings_result
         },
         dialer_proxy: dialer_proxy

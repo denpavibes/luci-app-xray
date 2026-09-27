@@ -62,6 +62,46 @@ function add_flow_and_stream_security_conf(s, tab_name, depends_field_name, prot
         flow_reality.rmempty = false;
         flow_reality.modalonly = true;
 
+        if (!server_side) {
+            let dep_tls_vision = {};
+            dep_tls_vision[depends_field_name] = protocol_name;
+            dep_tls_vision[`${protocol_name}_tls`] = "tls";
+            dep_tls_vision[`${protocol_name}_flow_tls`] = "xtls-rprx-vision";
+
+            let dep_tls_vision_udp443 = {};
+            dep_tls_vision_udp443[depends_field_name] = protocol_name;
+            dep_tls_vision_udp443[`${protocol_name}_tls`] = "tls";
+            dep_tls_vision_udp443[`${protocol_name}_flow_tls`] = "xtls-rprx-vision-udp443";
+
+            let dep_reality_vision = {};
+            dep_reality_vision[depends_field_name] = protocol_name;
+            dep_reality_vision[`${protocol_name}_tls`] = "reality";
+            dep_reality_vision[`${protocol_name}_flow_reality`] = "xtls-rprx-vision";
+
+            let dep_reality_vision_udp443 = {};
+            dep_reality_vision_udp443[depends_field_name] = protocol_name;
+            dep_reality_vision_udp443[`${protocol_name}_tls`] = "reality";
+            dep_reality_vision_udp443[`${protocol_name}_flow_reality`] = "xtls-rprx-vision-udp443";
+
+            o = s.taboption(tab_name, form.DynamicList, `${protocol_name}_testseed`, _(`[${protocol_name}] testseed`));
+            o.datatype = "uinteger";
+            o.depends(dep_tls_vision);
+            o.depends(dep_tls_vision_udp443);
+            o.depends(dep_reality_vision);
+            o.depends(dep_reality_vision_udp443);
+            o.rmempty = true;
+            o.modalonly = true;
+
+            o = s.taboption(tab_name, form.Value, `${protocol_name}_testpre`, _(`[${protocol_name}] testpre`));
+            o.datatype = "uinteger";
+            o.depends(dep_tls_vision);
+            o.depends(dep_tls_vision_udp443);
+            o.depends(dep_reality_vision);
+            o.depends(dep_reality_vision_udp443);
+            o.rmempty = true;
+            o.modalonly = true;
+        }
+
         o = s.taboption(tab_name, form.Flag, `${protocol_name}_reality_show`, _(`[${protocol_name}][reality] Show`));
         o.depends(`${protocol_name}_tls`, "reality");
         o.modalonly = true;
