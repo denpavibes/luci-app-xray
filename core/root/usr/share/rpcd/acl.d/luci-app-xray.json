@@ -2,6 +2,14 @@
     "luci-app-xray": {
         "description": "Grant access to xray configurations",
         "read": {
+            "file": {
+                "/usr/bin/xray": [
+                    "exec"
+                ],
+                "/usr/share/xray/xray": [
+                    "exec"
+                ]
+            },
             "uci": [
                 "xray_core"
             ]

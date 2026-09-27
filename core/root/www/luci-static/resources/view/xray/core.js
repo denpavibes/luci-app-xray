@@ -130,13 +130,32 @@ return view.extend({
             uci.load(shared.variant),
             fs.list("/usr/share/xray"),
             network.getHostHints()
-        ]);
+        ]).then(function (results) {
+            const xray_bin = uci.get_first(shared.variant, "general", "xray_bin") || "/usr/bin/xray";
+            return fs.exec_direct(xray_bin, ["version"]).then(function (res) {
+                results.push(res);
+                return results;
+            }).catch(function () {
+                results.push(null);
+                return results;
+            });
+        });
     },
 
     render: function (load_result) {
         const config_data = load_result[0];
         const { geoip_existence, geoip_size, geosite_existence, geosite_size, xray_bin_default, xray_running } = check_resource_files(load_result[1]);
-        const status_text = xray_running ? _("[Xray is running]") : _("[Xray is stopped]");
+        const xray_version_raw = load_result[3];
+        let xray_version = '';
+        if (xray_version_raw) {
+            const match = xray_version_raw.match(/^Xray\s+v?([^\s()]+)/i);
+            if (match) {
+                xray_version = `v${match[1]}`;
+            }
+        }
+        const status_text = xray_running ?
+            (xray_version ? _("[Xray %s is running]").format(xray_version) : _("[Xray is running]")) :
+            (xray_version ? _("[Xray %s is stopped]").format(xray_version) : _("[Xray is stopped]"));
         const hosts = load_result[2].hosts;
 
         let asset_file_status = _('WARNING: at least one of asset files (geoip.dat, geosite.dat) is not found under /usr/share/xray. Xray may not work properly. See <a href="https://github.com/yichya/luci-app-xray">here</a> for help.');
