@@ -97,7 +97,9 @@ function outbounds(proxy, config, manual_tproxy, bridge, extra_inbound, fakedns)
         }
     }
     for (let i in keys(outbound_balancers_all)) {
-        push(result, ...server_outbound(config[substr(i, -9)], i, config));
+        const parts = split(i, ":");
+        const server_id = parts[length(parts) - 1];
+        push(result, ...server_outbound(config[server_id] || config[substr(i, -9)], i, config));
     }
     if (proxy["geodata_enable"] == "1") {
         const geodata_outbound_server = proxy["geodata_outbound"];

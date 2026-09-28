@@ -5,7 +5,7 @@ export function balancer(ref, x, prefix) {
     if (length(v) == 0) {
         return ["direct"];
     }
-    return map(v, (k) => `${prefix}@balancer_outbound:${k}`);
+    return map(v, (k) => `balancer_outbound:${k}`);
 };
 
 export function api_conf(proxy) {
