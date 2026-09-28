@@ -249,45 +249,39 @@ function balancers(proxy, extra_inbound, fakedns) {
     ];
 };
 
-function is_observing_strategy(strategy) {
-    return strategy == "leastPing" || strategy == "leastLoad";
-}
-
-function observatory_subject_selector(general, extra_inbound, fakedns) {
+function observatory_subject_selector(obs, all_outbounds) {
     let result = ["direct"];
-    const general_strategy = general["general_balancer_strategy"] || "random";
-    if (is_observing_strategy(general_strategy)) {
-        for (let b in ["tcp_balancer_v4", "udp_balancer_v4", "tcp_balancer_v6", "udp_balancer_v6"]) {
-            if (length(general[b] || []) > 0) {
-                push(result, `${b}@balancer_outbound`);
-            }
-        }
+    if (!obs) {
+        return result;
     }
-    for (let e in extra_inbound) {
-        if (e["specify_outbound"] == "1" && is_observing_strategy(e["balancer_strategy"])) {
-            if (length(e["destination"] || []) > 0) {
-                push(result, `extra_inbound:${e[".name"]}@balancer_outbound`);
-            }
-        }
+    let servers = obs["servers"] || [];
+    if (type(servers) == "string") {
+        servers = filter(split(servers, " "), v => length(v) > 0);
     }
-    for (let f in fakedns) {
-        if (is_observing_strategy(f["fake_dns_balancer_strategy"])) {
-            if (length(f["fake_dns_forward_server_tcp"] || []) > 0) {
-                push(result, `fake_dns_tcp:${f[".name"]}@balancer_outbound`);
-            }
-            if (length(f["fake_dns_forward_server_udp"] || []) > 0) {
-                push(result, `fake_dns_udp:${f[".name"]}@balancer_outbound`);
+    if (length(servers) == 0) {
+        return result;
+    }
+    for (let o in all_outbounds) {
+        const tag = o["tag"];
+        if (!tag || tag == "direct" || tag == "dynamic_direct" || tag == "blackhole_outbound") {
+            continue;
+        }
+        const parts = split(tag, ":");
+        const server_id = parts[length(parts) - 1];
+        if (index(servers, server_id) != -1) {
+            if (index(result, tag) == -1) {
+                push(result, tag);
             }
         }
     }
     return result;
 }
 
-function observatory_conf(observatory_list, general, extra_inbound, fakedns) {
+function observatory_conf(observatory_list, all_outbounds) {
     const obs = filter(observatory_list, v => v["type"] == "observatory")[0];
     if (obs) {
         return {
-            subjectSelector: observatory_subject_selector(general, extra_inbound, fakedns),
+            subjectSelector: observatory_subject_selector(obs, all_outbounds),
             probeInterval: obs["probe_interval"] || "10s",
             probeUrl: obs["probe_url"] || "https://www.google.com/generate_204",
             enableConcurrency: obs["enable_concurrency"] == "1"
@@ -296,7 +290,7 @@ function observatory_conf(observatory_list, general, extra_inbound, fakedns) {
     return null;
 }
 
-function burst_observatory_conf(observatory_list, general, extra_inbound, fakedns) {
+function burst_observatory_conf(observatory_list, all_outbounds) {
     const burst = filter(observatory_list, v => v["type"] == "burstObservatory")[0];
     if (burst) {
         let ping_config = {
@@ -318,7 +312,7 @@ function burst_observatory_conf(observatory_list, general, extra_inbound, fakedn
             ping_config["httpMethod"] = burst["http_method"];
         }
         return {
-            subjectSelector: observatory_subject_selector(general, extra_inbound, fakedns),
+            subjectSelector: observatory_subject_selector(burst, all_outbounds),
             pingConfig: ping_config
         };
     }
@@ -370,11 +364,12 @@ function gen_config() {
 
     const general = filter(values(config), k => k[".type"] == "general")[0] || {};
     const custom_configuration_hook = loadstring(general["custom_configuration_hook"] || "return i => i;")();
-    const burst_obs = burst_observatory_conf(observatory_list, general, extra_inbound, fakedns);
+    const all_outbounds = outbounds(general, config, manual_tproxy, bridge, extra_inbound, fakedns);
+    const burst_obs = burst_observatory_conf(observatory_list, all_outbounds);
     const geodata = geodata_conf(general, geodata_assets, config);
     let result = {
         inbounds: inbounds(general, config, extra_inbound),
-        outbounds: outbounds(general, config, manual_tproxy, bridge, extra_inbound, fakedns),
+        outbounds: all_outbounds,
         dns: dns_conf(general, config, manual_tproxy, fakedns),
         fakedns: fake_dns_conf(general),
         api: api_conf(general),
@@ -384,7 +379,7 @@ function gen_config() {
         stats: general["stats"] == "1" ? {
             place: "holder"
         } : null,
-        observatory: observatory_conf(observatory_list, general, extra_inbound, fakedns),
+        observatory: observatory_conf(observatory_list, all_outbounds),
         routing: {
             domainStrategy: general["routing_domain_strategy"] || "AsIs",
             rules: rules(general, bridge, manual_tproxy, extra_inbound, fakedns),

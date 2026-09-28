@@ -656,6 +656,10 @@ return view.extend({
         o.placeholder = 'https://www.google.com/generate_204';
         o.rmempty = false;
 
+        let observatory_servers = ss.option(form.MultiValue, 'servers', _('Observed Outbounds'), _('Select outbound servers to be probed by this observatory. If none selected, only direct connection is probed.'));
+        observatory_servers.datatype = "uciname";
+        observatory_servers.modalonly = true;
+
         o = ss.option(form.Value, 'probe_interval', _('Probe Interval'), _('The interval for initiating probes. For example: <code>10s</code>, <code>100ms</code>, <code>1m</code>.'));
         o.placeholder = '10s';
         o.depends('type', 'observatory');
@@ -889,7 +893,7 @@ return view.extend({
         custom_configuration_hook.rows = 20;
 
         const servers = uci.sections(config_data, "servers");
-        for (let selection of [destination, fake_dns_forward_server_tcp, fake_dns_forward_server_udp, tcp_balancer_v4, tcp_balancer_v6, udp_balancer_v4, udp_balancer_v6, bridge_upstream, force_forward_server_tcp, force_forward_server_udp, dialer_proxy]) {
+        for (let selection of [destination, fake_dns_forward_server_tcp, fake_dns_forward_server_udp, tcp_balancer_v4, tcp_balancer_v6, udp_balancer_v4, udp_balancer_v6, bridge_upstream, force_forward_server_tcp, force_forward_server_udp, dialer_proxy, observatory_servers]) {
             if (servers.length == 0) {
                 selection.value("direct", _("No server configured"));
                 selection.readonly = true;
