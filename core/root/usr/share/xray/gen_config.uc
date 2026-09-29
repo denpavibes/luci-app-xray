@@ -58,7 +58,7 @@ function inbounds(proxy, config, extra_inbound) {
     return i;
 }
 
-function outbounds(proxy, config, manual_tproxy, bridge, extra_inbound, fakedns) {
+function outbounds(proxy, config, manual_tproxy, bridge, extra_inbound, fakedns, observatory_list) {
     let result = [
         blackhole_outbound(),
         direct_outbound("direct", null, false),
@@ -93,6 +93,17 @@ function outbounds(proxy, config, manual_tproxy, bridge, extra_inbound, fakedns)
         for (let i in balancer(f, "fake_dns_forward_server_udp", `fake_dns_udp:${f[".name"]}`)) {
             if (i != "direct") {
                 outbound_balancers_all[i] = true;
+            }
+        }
+    }
+    for (let obs in observatory_list) {
+        let servers = obs["servers"] || [];
+        if (type(servers) == "string") {
+            servers = filter(split(servers, " "), v => length(v) > 0);
+        }
+        for (let s in servers) {
+            if (s != "direct" && config[s]) {
+                outbound_balancers_all[`balancer_outbound:${s}`] = true;
             }
         }
     }
@@ -366,7 +377,7 @@ function gen_config() {
 
     const general = filter(values(config), k => k[".type"] == "general")[0] || {};
     const custom_configuration_hook = loadstring(general["custom_configuration_hook"] || "return i => i;")();
-    const all_outbounds = outbounds(general, config, manual_tproxy, bridge, extra_inbound, fakedns);
+    const all_outbounds = outbounds(general, config, manual_tproxy, bridge, extra_inbound, fakedns, observatory_list);
     const burst_obs = burst_observatory_conf(observatory_list, all_outbounds);
     const geodata = geodata_conf(general, geodata_assets, config);
     let result = {
