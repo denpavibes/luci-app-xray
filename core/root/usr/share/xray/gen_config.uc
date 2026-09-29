@@ -279,6 +279,9 @@ function observatory_subject_selector(obs, all_outbounds) {
         if (!tag || tag == "direct" || tag == "dynamic_direct" || tag == "blackhole_outbound") {
             continue;
         }
+        if (index(tag, "@dialer_proxy:") != -1) {
+            continue;
+        }
         const parts = split(tag, ":");
         const server_id = parts[length(parts) - 1];
         if (index(servers, server_id) != -1) {
