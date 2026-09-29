@@ -58,15 +58,7 @@ function server_outbound_recursive(t, server, tag, config) {
         outbound["streamSettings"]["sockopt"] = {};
     }
     outbound["streamSettings"]["sockopt"]["mark"] = outbound_mark;
-
-    const dialer_proxy = outbound_result["dialer_proxy"];
-    const result = [...t, outbound];
-
-    if (dialer_proxy != null) {
-        const dialer_proxy_section = config[dialer_proxy];
-        return server_outbound_recursive(result, dialer_proxy_section, `${tag}@dialer_proxy:${dialer_proxy}`, config);
-    }
-    return result;
+    return [...t, outbound];
 }
 
 export function direct_outbound(tag, redirect, enable_dynamic_direct) {

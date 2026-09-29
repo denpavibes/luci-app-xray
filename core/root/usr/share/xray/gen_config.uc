@@ -107,6 +107,22 @@ function outbounds(proxy, config, manual_tproxy, bridge, extra_inbound, fakedns,
             }
         }
     }
+    let found_new = true;
+    while (found_new) {
+        found_new = false;
+        for (let b in keys(outbound_balancers_all)) {
+            const parts = split(b, ":");
+            const sid = parts[length(parts) - 1];
+            const s = config[sid];
+            if (s && s["dialer_proxy"] && s["dialer_proxy"] != "disabled" && config[s["dialer_proxy"]]) {
+                const dp_tag = `balancer_outbound:${s["dialer_proxy"]}`;
+                if (!outbound_balancers_all[dp_tag]) {
+                    outbound_balancers_all[dp_tag] = true;
+                    found_new = true;
+                }
+            }
+        }
+    }
     for (let i in keys(outbound_balancers_all)) {
         const parts = split(i, ":");
         const server_id = parts[length(parts) - 1];
@@ -277,9 +293,6 @@ function observatory_subject_selector(obs, all_outbounds) {
     for (let o in all_outbounds) {
         const tag = o["tag"];
         if (!tag || tag == "direct" || tag == "dynamic_direct" || tag == "blackhole_outbound") {
-            continue;
-        }
-        if (index(tag, "@dialer_proxy:") != -1) {
             continue;
         }
         const parts = split(tag, ":");
