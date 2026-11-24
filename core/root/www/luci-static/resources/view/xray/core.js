@@ -338,6 +338,10 @@ return view.extend({
         ss.anonymous = true;
         ss.addremove = true;
         ss.nodescriptions = true;
+        ss.handleAdd = function (ev) {
+            const rand_id = 'sub_' + Math.random().toString(16).slice(2, 10).padEnd(8, '0');
+            return form.GridSection.prototype.handleAdd.call(this, ev, rand_id);
+        };
         ss.renderSectionAdd = function (extra_class) {
             const add_el = form.GridSection.prototype.renderSectionAdd.call(this, extra_class);
             const update_btn = E('button', {
