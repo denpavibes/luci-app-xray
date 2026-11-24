@@ -6,6 +6,12 @@
                 "xray_core"
             ],
             "file": {
+                "/etc/xray/subscriptions": [
+                    "list"
+                ],
+                "/etc/xray/subscriptions/*": [
+                    "read"
+                ],
                 "/usr/bin/wget": [
                     "exec"
                 ],

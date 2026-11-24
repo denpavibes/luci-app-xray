@@ -9,9 +9,10 @@ import { fake_dns_balancers, fake_dns_conf, fake_dns_rules } from "./feature/fak
 import { dokodemo_inbound, extra_inbound_balancers, extra_inbound_global, extra_inbound_rules, extra_inbounds, http_inbound, https_inbound, socks_inbound } from "./feature/inbound.mjs";
 import { manual_tproxy_outbound_tags, manual_tproxy_outbounds, manual_tproxy_rules } from "./feature/manual_tproxy.mjs";
 import { blackhole_outbound, direct_outbound, server_outbound } from "./feature/outbound.mjs";
-import { api_conf, balancer, logging, metrics_conf, policy, system_route_rules } from "./feature/system.mjs";
+import { subscription_balancer, subscription_outbounds, subscription_update_inbound, subscription_update_rules } from "./feature/subscription.mjs";
+import { api_conf, balancer, logging, metrics_conf, policy, resolve_balancer_strategy, system_route_rules } from "./feature/system.mjs";
 
-function inbounds(proxy, config, extra_inbound) {
+function inbounds(proxy, config, extra_inbound, subscriptions) {
     const tproxy_sniffing = proxy["tproxy_sniffing"];
     const route_only = proxy["route_only"];
     const conn_idle = proxy["conn_idle"];
@@ -55,10 +56,11 @@ function inbounds(proxy, config, extra_inbound) {
             tag: "api"
         });
     }
+    push(i, ...subscription_update_inbound(subscriptions, config));
     return i;
 }
 
-function outbounds(proxy, config, manual_tproxy, bridge, extra_inbound, fakedns, observatory_list) {
+function outbounds(proxy, config, manual_tproxy, bridge, extra_inbound, fakedns, observatory_list, subscriptions) {
     let result = [
         blackhole_outbound(),
         direct_outbound("direct", null, false),
@@ -68,32 +70,59 @@ function outbounds(proxy, config, manual_tproxy, bridge, extra_inbound, fakedns,
         ...bridge_outbounds(config, bridge)
     ];
     let outbound_balancers_all = {};
-    for (let b in ["tcp_balancer_v4", "udp_balancer_v4", "tcp_balancer_v6", "udp_balancer_v6"]) {
-        for (let i in balancer(proxy, b, b)) {
-            if (i != "direct") {
-                outbound_balancers_all[i] = true;
+    let referenced_subscriptions = {};
+    const collect_target = function (target) {
+        if (!target || target == "direct") {
+            return;
+        }
+        if (config[target] && config[target][".type"] == "subscriptions") {
+            referenced_subscriptions[target] = true;
+            return;
+        }
+        if (substr(target, 0, 22) == "subscription_outbound:") {
+            const parts = split(target, ":");
+            if (parts[1]) {
+                referenced_subscriptions[parts[1]] = true;
             }
+            return;
+        }
+        outbound_balancers_all[target] = true;
+    };
+    for (let b in ["tcp_balancer_v4", "udp_balancer_v4", "tcp_balancer_v6", "udp_balancer_v6"]) {
+        for (let i in balancer(proxy, b, b, config)) {
+            collect_target(i);
         }
     }
     for (let e in extra_inbound) {
         if (e["specify_outbound"] == "1") {
-            for (let i in balancer(e, "destination", `extra_inbound:${e[".name"]}`)) {
-                if (i != "direct") {
-                    outbound_balancers_all[i] = true;
-                }
+            for (let i in balancer(e, "destination", `extra_inbound:${e[".name"]}`, config)) {
+                collect_target(i);
             }
         }
     }
     for (let f in fakedns) {
-        for (let i in balancer(f, "fake_dns_forward_server_tcp", `fake_dns_tcp:${f[".name"]}`)) {
-            if (i != "direct") {
-                outbound_balancers_all[i] = true;
+        for (let i in balancer(f, "fake_dns_forward_server_tcp", `fake_dns_tcp:${f[".name"]}`, config)) {
+            collect_target(i);
+        }
+        for (let i in balancer(f, "fake_dns_forward_server_udp", `fake_dns_udp:${f[".name"]}`, config)) {
+            collect_target(i);
+        }
+    }
+    for (let m in manual_tproxy) {
+        if (m["force_forward_tcp"] == "1" && m["force_forward_server_tcp"]) {
+            if (config[m["force_forward_server_tcp"]] && config[m["force_forward_server_tcp"]][".type"] == "subscriptions") {
+                referenced_subscriptions[m["force_forward_server_tcp"]] = true;
             }
         }
-        for (let i in balancer(f, "fake_dns_forward_server_udp", `fake_dns_udp:${f[".name"]}`)) {
-            if (i != "direct") {
-                outbound_balancers_all[i] = true;
+        if (m["force_forward_udp"] == "1" && m["force_forward_server_udp"]) {
+            if (config[m["force_forward_server_udp"]] && config[m["force_forward_server_udp"]][".type"] == "subscriptions") {
+                referenced_subscriptions[m["force_forward_server_udp"]] = true;
             }
+        }
+    }
+    for (let br in bridge) {
+        if (br["upstream"] && config[br["upstream"]] && config[br["upstream"]][".type"] == "subscriptions") {
+            referenced_subscriptions[br["upstream"]] = true;
         }
     }
     for (let obs in observatory_list) {
@@ -103,7 +132,28 @@ function outbounds(proxy, config, manual_tproxy, bridge, extra_inbound, fakedns,
         }
         for (let s in servers) {
             if (s != "direct" && config[s]) {
-                outbound_balancers_all[`balancer_outbound:${s}`] = true;
+                if (config[s][".type"] == "subscriptions") {
+                    referenced_subscriptions[s] = true;
+                } else {
+                    outbound_balancers_all[`balancer_outbound:${s}`] = true;
+                }
+            }
+        }
+    }
+    let found_sub_proxy = true;
+    while (found_sub_proxy) {
+        found_sub_proxy = false;
+        for (let s in subscriptions) {
+            const p = s["outbound_proxy"];
+            if (p && p != "direct" && p != s[".name"] && config[p]) {
+                if (config[p][".type"] == "subscriptions") {
+                    if (!referenced_subscriptions[p]) {
+                        referenced_subscriptions[p] = true;
+                        found_sub_proxy = true;
+                    }
+                } else {
+                    outbound_balancers_all[`balancer_outbound:${p}`] = true;
+                }
             }
         }
     }
@@ -128,6 +178,9 @@ function outbounds(proxy, config, manual_tproxy, bridge, extra_inbound, fakedns,
         const server_id = parts[length(parts) - 1];
         push(result, ...server_outbound(config[server_id] || config[substr(i, -9)], i, config));
     }
+    for (let sub_id in keys(referenced_subscriptions)) {
+        push(result, ...subscription_outbounds(sub_id));
+    }
     if (proxy["geodata_enable"] == "1") {
         const geodata_outbound_server = proxy["geodata_outbound"];
         if (geodata_outbound_server && geodata_outbound_server != "direct" && config[geodata_outbound_server]) {
@@ -137,7 +190,7 @@ function outbounds(proxy, config, manual_tproxy, bridge, extra_inbound, fakedns,
     return result;
 }
 
-function rules(proxy, bridge, manual_tproxy, extra_inbound, fakedns) {
+function rules(proxy, bridge, manual_tproxy, extra_inbound, fakedns, subscriptions, config) {
     const geoip_existence = access("/usr/share/xray/geoip.dat") || false;
     const tproxy_tcp_inbound_v4_tags = ["tproxy_tcp_inbound_v4"];
     const tproxy_udp_inbound_v4_tags = ["tproxy_udp_inbound_v4"];
@@ -151,11 +204,12 @@ function rules(proxy, bridge, manual_tproxy, extra_inbound, fakedns) {
     const built_in_tcp_inbounds = [...tproxy_tcp_inbound_v4_tags, ...extra_inbound_global_tcp_tags, ...extra_inbound_global_http_tags, ...extra_inbound_global_socks5_tags, "socks_inbound", "https_inbound", "http_inbound"];
     const built_in_udp_inbounds = [...tproxy_udp_inbound_v4_tags, ...extra_inbound_global_udp_tags, "dns_conf_inbound"];
     let result = [
+        ...subscription_update_rules(subscriptions, config),
         ...fake_dns_rules(fakedns),
-        ...manual_tproxy_rules(manual_tproxy),
+        ...manual_tproxy_rules(manual_tproxy, config),
         ...extra_inbound_rules(extra_inbound),
         ...system_route_rules(proxy),
-        ...bridge_rules(bridge),
+        ...bridge_rules(bridge, config),
         ...dns_rules(proxy, [...tproxy_tcp_inbound_v6_tags, ...tproxy_tcp_inbound_v4_tags, ...extra_inbound_global_tcp_tags], [...tproxy_udp_inbound_v6_tags, ...tproxy_udp_inbound_v4_tags, ...extra_inbound_global_udp_tags]),
         ...function () {
             let direct_rules = [];
@@ -259,7 +313,7 @@ function rules(proxy, bridge, manual_tproxy, extra_inbound, fakedns) {
     return result;
 }
 
-function balancers(proxy, extra_inbound, fakedns) {
+function balancers(proxy, extra_inbound, fakedns, subscriptions, config) {
     const general_balancer_strategy = proxy["general_balancer_strategy"] || "random";
     const built_in_outbounds = ["tcp_outbound_v4", "udp_outbound_v4", "tcp_outbound_v6", "udp_outbound_v6"];
     const built_in_balancers = ["tcp_balancer_v4", "udp_balancer_v4", "tcp_balancer_v6", "udp_balancer_v6"];
@@ -267,18 +321,19 @@ function balancers(proxy, extra_inbound, fakedns) {
         ...map(built_in_balancers, function (balancer_tag, index) {
             return {
                 "tag": built_in_outbounds[index],
-                "selector": balancer(proxy, balancer_tag, balancer_tag),
+                "selector": balancer(proxy, balancer_tag, balancer_tag, config),
                 "strategy": {
-                    "type": general_balancer_strategy
+                    "type": resolve_balancer_strategy(proxy, balancer_tag, general_balancer_strategy, config)
                 }
             };
         }),
-        ...extra_inbound_balancers(extra_inbound),
-        ...fake_dns_balancers(fakedns),
+        ...extra_inbound_balancers(extra_inbound, config),
+        ...fake_dns_balancers(fakedns, config),
+        ...map(subscriptions, s => subscription_balancer(s)),
     ];
 };
 
-function observatory_subject_selector(obs, all_outbounds) {
+function observatory_subject_selector(obs, all_outbounds, config) {
     let result = ["direct"];
     if (!obs) {
         return result;
@@ -290,9 +345,20 @@ function observatory_subject_selector(obs, all_outbounds) {
     if (length(servers) == 0) {
         return result;
     }
+    for (let s in servers) {
+        if (config && config[s] && config[s][".type"] == "subscriptions") {
+            const prefix = sprintf("subscription_outbound:%s:", s);
+            if (index(result, prefix) == -1) {
+                push(result, prefix);
+            }
+        }
+    }
     for (let o in all_outbounds) {
         const tag = o["tag"];
         if (!tag || tag == "direct" || tag == "dynamic_direct" || tag == "blackhole_outbound") {
+            continue;
+        }
+        if (substr(tag, 0, 22) == "subscription_outbound:") {
             continue;
         }
         const parts = split(tag, ":");
@@ -306,11 +372,11 @@ function observatory_subject_selector(obs, all_outbounds) {
     return result;
 }
 
-function observatory_conf(observatory_list, all_outbounds) {
+function observatory_conf(observatory_list, all_outbounds, config) {
     const obs = filter(observatory_list, v => v["type"] == "observatory")[0];
     if (obs) {
         return {
-            subjectSelector: observatory_subject_selector(obs, all_outbounds),
+            subjectSelector: observatory_subject_selector(obs, all_outbounds, config),
             probeInterval: obs["probe_interval"] || "10s",
             probeUrl: obs["probe_url"] || "https://www.google.com/generate_204",
             enableConcurrency: obs["enable_concurrency"] == "1"
@@ -319,7 +385,7 @@ function observatory_conf(observatory_list, all_outbounds) {
     return null;
 }
 
-function burst_observatory_conf(observatory_list, all_outbounds) {
+function burst_observatory_conf(observatory_list, all_outbounds, config) {
     const burst = filter(observatory_list, v => v["type"] == "burstObservatory")[0];
     if (burst) {
         let ping_config = {
@@ -341,7 +407,7 @@ function burst_observatory_conf(observatory_list, all_outbounds) {
             ping_config["httpMethod"] = burst["http_method"];
         }
         return {
-            subjectSelector: observatory_subject_selector(burst, all_outbounds),
+            subjectSelector: observatory_subject_selector(burst, all_outbounds, config),
             pingConfig: ping_config
         };
     }
@@ -390,14 +456,15 @@ function gen_config() {
     const manual_tproxy = filter(values(config), v => v[".type"] == "manual_tproxy") || [];
     const observatory_list = filter(values(config), v => v[".type"] == "observatory") || [];
     const geodata_assets = filter(values(config), v => v[".type"] == "geodata_asset") || [];
+    const subscriptions = filter(values(config), v => v[".type"] == "subscriptions") || [];
 
     const general = filter(values(config), k => k[".type"] == "general")[0] || {};
     const custom_configuration_hook = loadstring(general["custom_configuration_hook"] || "return i => i;")();
-    const all_outbounds = outbounds(general, config, manual_tproxy, bridge, extra_inbound, fakedns, observatory_list);
-    const burst_obs = burst_observatory_conf(observatory_list, all_outbounds);
+    const all_outbounds = outbounds(general, config, manual_tproxy, bridge, extra_inbound, fakedns, observatory_list, subscriptions);
+    const burst_obs = burst_observatory_conf(observatory_list, all_outbounds, config);
     const geodata = geodata_conf(general, geodata_assets, config);
     let result = {
-        inbounds: inbounds(general, config, extra_inbound),
+        inbounds: inbounds(general, config, extra_inbound, subscriptions),
         outbounds: all_outbounds,
         dns: dns_conf(general, config, manual_tproxy, fakedns),
         fakedns: fake_dns_conf(general),
@@ -408,11 +475,11 @@ function gen_config() {
         stats: general["stats"] == "1" ? {
             place: "holder"
         } : null,
-        observatory: observatory_conf(observatory_list, all_outbounds),
+        observatory: observatory_conf(observatory_list, all_outbounds, config),
         routing: {
             domainStrategy: general["routing_domain_strategy"] || "AsIs",
-            rules: rules(general, bridge, manual_tproxy, extra_inbound, fakedns),
-            balancers: balancers(general, extra_inbound, fakedns)
+            rules: rules(general, bridge, manual_tproxy, extra_inbound, fakedns, subscriptions, config),
+            balancers: balancers(general, extra_inbound, fakedns, subscriptions, config)
         }
     };
     if (burst_obs) {

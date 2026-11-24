@@ -66,6 +66,9 @@ function get_inbound_uci_description(config, key) {
         case "dns_server_inbound": {
             return E([], [key, " ", shared.badge(`{ listen: <strong>dns://0.0.0.0:${ks[1]}</strong> }`)]);
         }
+        case "subscription_update_inbound": {
+            return E([], [key, " ", shared.badge(`{ listen: <strong>socks5://127.0.0.1:1090</strong> }`)]);
+        }
     }
     const uci_key = key.slice(-9);
     const uci_item = uci.get(config, uci_key);
@@ -208,7 +211,24 @@ function outbound_last_tag_format(first_uci_description, last_tag, last_uci_desc
     return shared.badge(`{ ${last_tag[0]}: <strong>${last_uci_description}</strong> }`, last_tag[1]);
 }
 
-function get_outbound_description(config, tag) {
+function get_outbound_description(config, tag, sub_caches) {
+    if (tag && tag.startsWith("subscription_outbound:")) {
+        const parts = tag.split(":");
+        const sub_id = parts[1];
+        const idx = parseInt(parts[2], 10);
+        const sub = uci.get(config, sub_id);
+        const cache = sub_caches && sub_caches[sub_id];
+        const sub_name = (sub && sub.alias) || (cache && cache.meta && cache.meta.title) || sub_id;
+        const node = (cache && Array.isArray(cache.nodes) && !isNaN(idx)) ? cache.nodes[idx] : null;
+        if (node) {
+            const node_label = node.remarks || `${node.protocol},${node.address}:${node.port}`;
+            return E([], [
+                `${sub_name}: ${node_label} `,
+                shared.badge(`{ ${node.protocol}: <strong>${node.address}:${node.port}</strong> }`, `${node.network}/${node.security}`)
+            ]);
+        }
+        return E([], [tag, " ", shared.badge(`{ subscription: <strong>${sub_name}</strong> }`)]);
+    }
     const tag_split = tag.split("@");
     const first_uci_description = get_outbound_uci_description(config, tag_split[0].split(":")[1]);
 
@@ -225,7 +245,7 @@ function get_outbound_description(config, tag) {
     return result;
 }
 
-function observatory(vars, config) {
+function observatory(vars, config, sub_caches) {
     if (!vars["observatory"]) {
         return [];
     }
@@ -268,7 +288,7 @@ function observatory(vars, config) {
                         _("<i>active</i>");
 
                     return E('tr', { 'class': `tr cbi-rowstyle-${index % 2 + 1}` }, [
-                        E('td', { 'class': 'td' }, get_outbound_description(config, v[0])),
+                        E('td', { 'class': 'td' }, get_outbound_description(config, v[0], sub_caches)),
                         E('td', { 'class': 'td' }, latency),
                         E('td', { 'class': 'td' }, samples),
                         E('td', { 'class': 'td' }, min_avg_max),
@@ -283,7 +303,7 @@ function observatory(vars, config) {
                         _("<i>never</i>");
 
                     return E('tr', { 'class': `tr cbi-rowstyle-${index % 2 + 1}` }, [
-                        E('td', { 'class': 'td' }, get_outbound_description(config, v[0])),
+                        E('td', { 'class': 'td' }, get_outbound_description(config, v[0], sub_caches)),
                         E('td', { 'class': 'td' }, latency),
                         E('td', { 'class': 'td' }, last_seen),
                         E('td', { 'class': 'td' }, last_check),
@@ -294,7 +314,7 @@ function observatory(vars, config) {
     ];
 };
 
-function outbound_stats(vars, config) {
+function outbound_stats(vars, config, sub_caches) {
     if (!vars["stats"]) {
         return [];
     }
@@ -310,7 +330,7 @@ function outbound_stats(vars, config) {
                 E('th', { 'class': 'th' }, _('Downlink')),
                 E('th', { 'class': 'th' }, _('Uplink')),
             ]), ...Object.entries(vars["stats"]["outbound"]).map((v, index, arr) => E('tr', { 'class': `tr cbi-rowstyle-${index % 2 + 1}` }, [
-                E('td', { 'class': 'td' }, get_outbound_description(config, v[0])),
+                E('td', { 'class': 'td' }, get_outbound_description(config, v[0], sub_caches)),
                 E('td', { 'class': 'td' }, '%.2mB'.format(v[1]["downlink"])),
                 E('td', { 'class': 'td' }, '%.2mB'.format(v[1]["uplink"])),
             ]))
@@ -342,16 +362,129 @@ function inbound_stats(vars, config) {
     ];
 };
 
+function subscriptions_tab(vars, config, sub_caches) {
+    const subs = uci.sections(config, "subscriptions") || [];
+    if (subs.length === 0) {
+        return [
+            E('h3', _('Subscriptions')),
+            E('div', { 'class': 'cbi-map-descr' }, _("No subscriptions configured."))
+        ];
+    }
+    let blocks = [
+        E('h3', _('Subscriptions')),
+        E('div', { 'class': 'cbi-map-descr' }, _("Subscription metadata, traffic usage, and parsed node list."))
+    ];
+    for (const s of subs) {
+        const sub_id = s[".name"];
+        const cache = sub_caches && sub_caches[sub_id];
+        const meta = (cache && cache.meta) ? cache.meta : {};
+        const title = s.alias || meta.title || s.url || sub_id;
+        const header_links = [];
+        if (meta.web_page_url && (meta.web_page_url.startsWith("https://") || meta.web_page_url.startsWith("http://"))) {
+            header_links.push(" ", E('a', { 'href': meta.web_page_url, 'target': '_blank', 'rel': 'noopener' }, `[${_('Website')}]`));
+        }
+        if (meta.support_url && (meta.support_url.startsWith("https://") || meta.support_url.startsWith("http://"))) {
+            header_links.push(" ", E('a', { 'href': meta.support_url, 'target': '_blank', 'rel': 'noopener' }, `[${_('Support')}]`));
+        }
+        blocks.push(E('h4', {}, [title, ...header_links]));
+
+        if (meta.announce) {
+            blocks.push(E('p', { 'class': 'cbi-map-descr' }, meta.announce));
+        }
+
+        const upload_str = meta.upload !== undefined ? '%.2mB'.format(meta.upload) : '-';
+        const download_str = meta.download !== undefined ? '%.2mB'.format(meta.download) : '-';
+        const total_str = meta.total !== undefined ? (meta.total > 0 ? '%.2mB'.format(meta.total) : _('Unlimited')) : '-';
+        const refill_str = (meta.refill_date && meta.refill_date > 0) ? new Date(meta.refill_date * 1000).toLocaleString() : '-';
+        const expire_str = (meta.expire && meta.expire > 0) ? new Date(meta.expire * 1000).toLocaleString() : '-';
+        const updated_str = (cache && cache.updated_at) ? new Date(cache.updated_at * 1000).toLocaleString() : _('Never');
+        const status_badge = (cache && cache.status === 'error')
+            ? E([], [updated_str, " ", shared.badge(_('Error'), cache.error || _('Update failed'))])
+            : updated_str;
+
+        blocks.push(E('table', { 'class': 'table' }, [
+            E('tr', { 'class': 'tr table-titles' }, [
+                E('th', { 'class': 'th' }, _('Upload')),
+                E('th', { 'class': 'th' }, _('Download')),
+                E('th', { 'class': 'th' }, _('Total')),
+                E('th', { 'class': 'th' }, _('Refill Date')),
+                E('th', { 'class': 'th' }, _('Expire Date')),
+                E('th', { 'class': 'th' }, _('Last Updated')),
+            ]),
+            E('tr', { 'class': 'tr cbi-rowstyle-1' }, [
+                E('td', { 'class': 'td' }, upload_str),
+                E('td', { 'class': 'td' }, download_str),
+                E('td', { 'class': 'td' }, total_str),
+                E('td', { 'class': 'td' }, refill_str),
+                E('td', { 'class': 'td' }, expire_str),
+                E('td', { 'class': 'td' }, status_badge),
+            ])
+        ]));
+
+        const nodes = (cache && Array.isArray(cache.nodes)) ? cache.nodes : [];
+        if (nodes.length > 0) {
+            const obs_map = (vars && vars["observatory"]) ? vars["observatory"] : {};
+            blocks.push(E('table', { 'class': 'table' }, [
+                E('tr', { 'class': 'tr table-titles' }, [
+                    E('th', { 'class': 'th' }, '#'),
+                    E('th', { 'class': 'th' }, _('Remarks')),
+                    E('th', { 'class': 'th' }, _('Protocol')),
+                    E('th', { 'class': 'th' }, _('Server')),
+                    E('th', { 'class': 'th' }, _('Latency')),
+                ]),
+                ...nodes.map((n, idx) => {
+                    const ob_tag = `subscription_outbound:${sub_id}:${idx}`;
+                    const ob_stat = obs_map[ob_tag];
+                    let lat = '-';
+                    if (ob_stat) {
+                        lat = ob_stat["alive"] ? `${ob_stat["delay"]} ${_("ms")}` : _("<i>unreachable</i>");
+                    }
+                    return E('tr', { 'class': `tr cbi-rowstyle-${idx % 2 + 1}` }, [
+                        E('td', { 'class': 'td' }, String(idx + 1)),
+                        E('td', { 'class': 'td' }, n.remarks || '-'),
+                        E('td', { 'class': 'td' }, `${n.protocol} / ${n.network} / ${n.security}`),
+                        E('td', { 'class': 'td' }, n.address ? `${n.address}:${n.port}` : '-'),
+                        E('td', { 'class': 'td' }, lat),
+                    ]);
+                })
+            ]));
+        } else {
+            blocks.push(E('p', { 'class': 'cbi-map-descr' }, E('i', _('No cached nodes available.'))));
+        }
+    }
+    return blocks;
+}
+
 return view.extend({
     load: function () {
         return Promise.all([
             uci.load(shared.variant),
-            fs.read("/usr/share/xray/version.txt")
-        ]);
+            fs.read("/usr/share/xray/version.txt"),
+            fs.list("/etc/xray/subscriptions").catch(function () { return []; })
+        ]).then(function (results) {
+            const sub_files = (results[2] || []).filter(f => f.name && f.name.endsWith(".json"));
+            return Promise.all(sub_files.map(f =>
+                fs.read("/etc/xray/subscriptions/" + f.name).then(function (content) {
+                    return [f.name.slice(0, -5), JSON.parse(content)];
+                }).catch(function () {
+                    return [f.name.slice(0, -5), null];
+                })
+            )).then(function (entries) {
+                let sub_caches = {};
+                for (const entry of entries) {
+                    if (entry[1]) {
+                        sub_caches[entry[0]] = entry[1];
+                    }
+                }
+                results[2] = sub_caches;
+                return results;
+            });
+        });
     },
 
     render: function (load_result) {
         const config = load_result[0];
+        const sub_caches = load_result[2] || {};
         if (uci.get_first(config, "general", "metrics_server_enable") !== "1") {
             return E([], [
                 E('h2', _('Xray (status)')),
@@ -374,9 +507,10 @@ return view.extend({
             fs.exec_direct("/usr/bin/wget", ["-O", "-", `http://127.0.0.1:${uci.get_first(config, "general", "metrics_server_port") || 18888}/debug/vars`], "json").then(function (vars) {
                 const result = E([], [
                     E('div', {}, [
-                        E('div', { 'class': 'cbi-section', 'data-tab': 'observatory', 'data-tab-title': _('Observatory') }, observatory(vars, config)),
-                        E('div', { 'class': 'cbi-section', 'data-tab': 'outbounds', 'data-tab-title': _('Outbounds') }, outbound_stats(vars, config)),
-                        E('div', { 'class': 'cbi-section', 'data-tab': 'inbounds', 'data-tab-title': _('Inbounds') }, inbound_stats(vars, config))
+                        E('div', { 'class': 'cbi-section', 'data-tab': 'observatory', 'data-tab-title': _('Observatory') }, observatory(vars, config, sub_caches)),
+                        E('div', { 'class': 'cbi-section', 'data-tab': 'outbounds', 'data-tab-title': _('Outbounds') }, outbound_stats(vars, config, sub_caches)),
+                        E('div', { 'class': 'cbi-section', 'data-tab': 'inbounds', 'data-tab-title': _('Inbounds') }, inbound_stats(vars, config)),
+                        E('div', { 'class': 'cbi-section', 'data-tab': 'subscriptions', 'data-tab-title': _('Subscriptions') }, subscriptions_tab(vars, config, sub_caches))
                     ])
                 ]);
                 ui.tabs.initTabGroup(result.lastElementChild.childNodes);

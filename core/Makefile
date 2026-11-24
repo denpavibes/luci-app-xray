@@ -15,7 +15,7 @@ define Package/$(PKG_NAME)
 	SECTION:=Custom
 	CATEGORY:=Extra packages
 	TITLE:=LuCI Support for Xray
-	DEPENDS:=firewall4 +kmod-nft-tproxy +luci-base +xray-core +dnsmasq +ca-bundle
+	DEPENDS:=firewall4 +kmod-nft-tproxy +luci-base +xray-core +dnsmasq +ca-bundle +curl
 	PKGARCH:=all
 endef
 
@@ -76,6 +76,7 @@ define Package/$(PKG_NAME)/conffiles
 endef
 
 define Package/$(PKG_NAME)/install
+	$(INSTALL_DIR) $(1)/etc/xray/subscriptions
 	$(INSTALL_DIR) $(1)/etc/luci-uploads/xray
 	$(INSTALL_DIR) $(1)/etc/ssl/certs
 ifdef CONFIG_PACKAGE_XRAY_INCLUDE_CLOUDFLARE_ORIGIN_ROOT_CA
@@ -126,6 +127,7 @@ endif
 	$(INSTALL_BIN) ./root/usr/share/xray/dnsmasq_include.ut $(1)/usr/share/xray/dnsmasq_include.ut
 	$(INSTALL_BIN) ./root/usr/share/xray/firewall_include.ut $(1)/usr/share/xray/firewall_include.ut
 	$(INSTALL_BIN) ./root/usr/share/xray/gen_config.uc $(1)/usr/share/xray/gen_config.uc
+	$(INSTALL_BIN) ./root/usr/share/xray/subscription_update.uc $(1)/usr/share/xray/subscription_update.uc
 	$(INSTALL_DIR) $(1)/usr/share/xray/common
 	$(INSTALL_DATA) ./root/usr/share/xray/common/config.mjs $(1)/usr/share/xray/common/config.mjs
 	$(INSTALL_DATA) ./root/usr/share/xray/common/stream.mjs $(1)/usr/share/xray/common/stream.mjs
@@ -137,6 +139,7 @@ endif
 	$(INSTALL_DATA) ./root/usr/share/xray/feature/inbound.mjs $(1)/usr/share/xray/feature/inbound.mjs
 	$(INSTALL_DATA) ./root/usr/share/xray/feature/manual_tproxy.mjs $(1)/usr/share/xray/feature/manual_tproxy.mjs
 	$(INSTALL_DATA) ./root/usr/share/xray/feature/outbound.mjs $(1)/usr/share/xray/feature/outbound.mjs
+	$(INSTALL_DATA) ./root/usr/share/xray/feature/subscription.mjs $(1)/usr/share/xray/feature/subscription.mjs
 	$(INSTALL_DATA) ./root/usr/share/xray/feature/system.mjs $(1)/usr/share/xray/feature/system.mjs
 	$(INSTALL_DIR) $(1)/usr/share/xray/protocol
 	$(INSTALL_DATA) ./root/usr/share/xray/protocol/shadowsocks.mjs $(1)/usr/share/xray/protocol/shadowsocks.mjs

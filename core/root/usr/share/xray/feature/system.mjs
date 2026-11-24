@@ -1,11 +1,24 @@
 "use strict";
 
-export function balancer(ref, x, prefix) {
+export function balancer(ref, x, prefix, config) {
     const v = ref[x] || [];
     if (length(v) == 0) {
         return ["direct"];
     }
-    return map(v, (k) => `balancer_outbound:${k}`);
+    return map(v, (k) => {
+        if (config && config[k] && config[k][".type"] == "subscriptions") {
+            return `subscription_outbound:${k}:`;
+        }
+        return `balancer_outbound:${k}`;
+    });
+};
+
+export function resolve_balancer_strategy(ref, x, default_strategy, config) {
+    const v = ref[x] || [];
+    if (length(v) == 1 && config && config[v[0]] && config[v[0]][".type"] == "subscriptions") {
+        return config[v[0]]["balancer_strategy"] || "random";
+    }
+    return default_strategy;
 };
 
 export function api_conf(proxy) {

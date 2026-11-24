@@ -4,13 +4,50 @@
 'require network';
 'require tools.widgets as widgets';
 'require uci';
+'require ui';
 'require view';
 'require view.xray.protocol as protocol';
 'require view.xray.shared as shared';
 'require view.xray.transport as transport';
 
-function server_alias(v) {
+function subscription_alias(v, sub_caches) {
+    if (!v) {
+        return "";
+    }
+    const cache = sub_caches && sub_caches[v[".name"]];
+    const title = (cache && cache.meta && cache.meta.title) ? cache.meta.title : "";
+    return `[Sub] ${v.alias || title || v.url || v[".name"]}`;
+}
+
+function server_alias(v, sub_caches) {
+    if (!v) {
+        return "";
+    }
+    if (v[".type"] === "subscriptions") {
+        return subscription_alias(v, sub_caches);
+    }
     return v.alias || v.server + ":" + v.server_port;
+}
+
+function format_sub_usage(cache) {
+    if (!cache || !cache.meta) {
+        return "-";
+    }
+    const m = cache.meta;
+    const parts = [];
+    if (m.upload !== undefined || m.download !== undefined) {
+        const used = (m.upload || 0) + (m.download || 0);
+        const total = m.total > 0 ? '%.2mB'.format(m.total) : '∞';
+        parts.push(`${'%.2mB'.format(used)} / ${total}`);
+    }
+    if (m.expire && m.expire > 0) {
+        const d = new Date(m.expire * 1000);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        parts.push(`${_("exp.")} ${yyyy}-${mm}-${dd}`);
+    }
+    return parts.length > 0 ? parts.join(" · ") : "-";
 }
 
 function list_folded_format(config_data, k, noun, max_chars, mapping, empty) {
@@ -42,14 +79,17 @@ function list_folded_format(config_data, k, noun, max_chars, mapping, empty) {
     };
 }
 
-function destination_format(config_data, k, e, max_chars) {
+function destination_format(config_data, k, e, max_chars, sub_caches) {
     return function (s) {
         if (e) {
             if (!uci.get(config_data, s, e)) {
                 return `<i>${_("use global settings")}</i>`;
             }
         }
-        return list_folded_format(config_data, k, "outbounds", max_chars, v => uci.get(config_data, v, "alias"), `<i>${_("direct")}</i>`)(s);
+        return list_folded_format(config_data, k, "outbounds", max_chars, v => {
+            const item = uci.get(config_data, v);
+            return item ? server_alias(item, sub_caches) : v;
+        }, `<i>${_("direct")}</i>`)(s);
     };
 }
 
@@ -129,14 +169,30 @@ return view.extend({
         return Promise.all([
             uci.load(shared.variant),
             fs.list("/usr/share/xray"),
-            network.getHostHints()
+            network.getHostHints(),
+            fs.list("/etc/xray/subscriptions").catch(function () { return []; })
         ]).then(function (results) {
+            const sub_files = (results[3] || []).filter(f => f.name && f.name.endsWith(".json"));
+            const cache_promises = sub_files.map(f =>
+                fs.read("/etc/xray/subscriptions/" + f.name).then(function (content) {
+                    return [f.name.slice(0, -5), JSON.parse(content)];
+                }).catch(function () {
+                    return [f.name.slice(0, -5), null];
+                })
+            );
             const xray_bin = uci.get_first(shared.variant, "general", "xray_bin") || "/usr/bin/xray";
-            return fs.exec_direct(xray_bin, ["version"]).then(function (res) {
-                results.push(res);
-                return results;
-            }).catch(function () {
-                results.push(null);
+            const version_promise = fs.exec_direct(xray_bin, ["version"]).catch(function () {
+                return null;
+            });
+            return Promise.all([version_promise, Promise.all(cache_promises)]).then(function (extra) {
+                let sub_caches = {};
+                for (const entry of extra[1]) {
+                    if (entry[1]) {
+                        sub_caches[entry[0]] = entry[1];
+                    }
+                }
+                results[3] = extra[0];
+                results[4] = sub_caches;
                 return results;
             });
         });
@@ -144,6 +200,7 @@ return view.extend({
 
     render: function (load_result) {
         const config_data = load_result[0];
+        const sub_caches = load_result[4] || {};
         const { geoip_existence, geoip_size, geosite_existence, geosite_size, xray_bin_default, xray_running } = check_resource_files(load_result[1]);
         const xray_version_raw = load_result[3];
         let xray_version = '';
@@ -274,6 +331,160 @@ return view.extend({
         o.monospace = true;
         o.rows = 12;
         o.validate = shared.validate_object;
+
+        o = s.taboption('general', form.SectionValue, "xray_subscriptions", form.GridSection, 'subscriptions', _('Subscriptions'), _('Subscribe to remote Xray node lists (Xray JSON or base64/plain share URIs). Each subscription can be used as an outbound.'));
+        ss = o.subsection;
+        ss.sortable = false;
+        ss.anonymous = true;
+        ss.addremove = true;
+        ss.nodescriptions = true;
+        ss.renderSectionAdd = function (extra_class) {
+            const add_el = form.GridSection.prototype.renderSectionAdd.call(this, extra_class);
+            const update_btn = E('button', {
+                'class': 'btn cbi-button cbi-button-action',
+                'type': 'button',
+                'style': 'margin-left: 0.5em;',
+                'click': function (ev) {
+                    const btn = ev.currentTarget;
+                    const orig_text = btn.textContent;
+                    btn.disabled = true;
+                    btn.textContent = _('Updating...');
+                    fs.exec('/usr/share/xray/subscription_update.uc', []).then(function (exec_res) {
+                        btn.disabled = false;
+                        btn.textContent = orig_text;
+                        if (!exec_res || exec_res.code !== 0) {
+                            const err_msg = (exec_res && (exec_res.stderr || exec_res.stdout)) || _('Exit code %s').format(exec_res ? exec_res.code : 'unknown');
+                            ui.addNotification(null, E('p', _('Failed to update subscriptions: %s').format(err_msg)), 'error');
+                            return;
+                        }
+                        let res = null;
+                        try {
+                            res = JSON.parse(exec_res.stdout);
+                        } catch (e) {
+                            ui.addNotification(null, E('p', _('Invalid response from subscription updater: %s').format(exec_res.stdout || e.message)), 'error');
+                            return;
+                        }
+                        const results = (res && Array.isArray(res.results)) ? res.results : [];
+                        if (results.length === 0) {
+                            ui.addNotification(null, E('p', _('No saved subscriptions found. Save & Apply first before updating.')), 'info');
+                            return;
+                        }
+                        const has_err = results.some(r => r.status !== 'ok');
+                        const lines = results.map(r => {
+                            const sec = uci.get(config_data, r.id);
+                            const name = (sec && sec.alias) || (sub_caches[r.id] && sub_caches[r.id].meta && sub_caches[r.id].meta.title) || r.id;
+                            return r.status === 'ok'
+                                ? E('li', `${name}: ${_('%d nodes').format(r.nodes)}${r.changed ? ` (${_('reloaded')})` : ''}`)
+                                : E('li', `${name}: ${r.error || _('Update failed')}`);
+                        });
+                        ui.addNotification(null, E('div', [
+                            E('p', _('Subscription update finished:')),
+                            E('ul', lines)
+                        ]), has_err ? 'warning' : 'info');
+                        setTimeout(function () {
+                            window.location.reload();
+                        }, 1200);
+                    }).catch(function (err) {
+                        btn.disabled = false;
+                        btn.textContent = orig_text;
+                        ui.addNotification(null, E('p', _('Failed to update subscriptions: %s').format(err.message || err)), 'error');
+                    });
+                }
+            }, _('Update'));
+            add_el.appendChild(update_btn);
+            return add_el;
+        };
+
+        o = ss.option(form.Value, 'alias', _('Alias (optional)'));
+        o.optional = true;
+        o.textvalue = function (section_id) {
+            const sec = uci.get(config_data, section_id);
+            const cache = sub_caches[section_id];
+            if (sec && sec.alias) {
+                return sec.alias;
+            }
+            if (cache && cache.meta && cache.meta.title) {
+                return cache.meta.title;
+            }
+            return (sec && sec.url) ? sec.url : '-';
+        };
+
+        o = ss.option(form.Value, 'url', _('URL'));
+        o.rmempty = false;
+        o.modalonly = true;
+        o.validate = function (section_id, value) {
+            if (!value || (!value.startsWith('http://') && !value.startsWith('https://'))) {
+                return _('URL must start with http:// or https://');
+            }
+            return true;
+        };
+
+        o = ss.option(form.ListValue, 'balancer_strategy', _('Balancer Strategy'), _('Strategy <code>leastPing</code> requires observatory, and <code>leastLoad</code> requires burstObservatory (see "Observatory" under "Outbound Routing").'));
+        o.value('random');
+        o.value('leastPing');
+        o.value('leastLoad');
+        o.value('roundRobin');
+        o.default = 'random';
+        o.rmempty = false;
+        o.modalonly = true;
+
+        o = ss.option(form.Value, 'update_interval', _('Update Interval'), _('A standard 5-field cron expression (e.g. <code>0 4 * * *</code>). Leave empty to disable automatic updates.'));
+        o.placeholder = '0 4 * * *';
+        o.optional = true;
+        o.modalonly = true;
+
+        let sub_outbound_proxy = ss.option(form.ListValue, 'outbound_proxy', _('Outbound Proxy'), _('Outbound proxy used when fetching this subscription. Requires Xray to be running when set.'));
+        sub_outbound_proxy.datatype = 'uciname';
+        sub_outbound_proxy.value('', _('Direct (no proxy)'));
+        sub_outbound_proxy.default = '';
+        sub_outbound_proxy.modalonly = true;
+        sub_outbound_proxy.renderWidget = function (section_id, option_index, cfgvalue) {
+            const orig_keylist = this.keylist ? this.keylist.slice() : null;
+            const orig_vallist = this.vallist ? this.vallist.slice() : null;
+            if (orig_keylist && orig_vallist) {
+                const idx = orig_keylist.indexOf(section_id);
+                if (idx !== -1) {
+                    this.keylist = orig_keylist.filter((_, i) => i !== idx);
+                    this.vallist = orig_vallist.filter((_, i) => i !== idx);
+                }
+            }
+            const res = form.ListValue.prototype.renderWidget.call(this, section_id, option_index, cfgvalue);
+            if (orig_keylist && orig_vallist) {
+                this.keylist = orig_keylist;
+                this.vallist = orig_vallist;
+            }
+            return res;
+        };
+
+        let sub_nodes = ss.option(form.DummyValue, 'sub_nodes', _('Nodes'));
+        sub_nodes.modalonly = false;
+        sub_nodes.textvalue = function (section_id) {
+            const cache = sub_caches[section_id];
+            if (!cache || !Array.isArray(cache.nodes)) {
+                return E('i', _('Not updated'));
+            }
+            return String(cache.nodes.length);
+        };
+
+        let sub_usage = ss.option(form.DummyValue, 'sub_usage', _('Usage / Expire'));
+        sub_usage.modalonly = false;
+        sub_usage.textvalue = function (section_id) {
+            return format_sub_usage(sub_caches[section_id]);
+        };
+
+        let sub_updated = ss.option(form.DummyValue, 'sub_updated', _('Last Updated'));
+        sub_updated.modalonly = false;
+        sub_updated.textvalue = function (section_id) {
+            const cache = sub_caches[section_id];
+            if (!cache || !cache.updated_at) {
+                return '-';
+            }
+            const ts = new Date(cache.updated_at * 1000).toLocaleString();
+            if (cache.status === 'error') {
+                return E([], [ts, ' ', shared.badge(_('Error'), cache.error || _('Update failed'))]);
+            }
+            return ts;
+        };
 
         s.tab('inbounds', _('Inbounds'));
 
@@ -517,24 +728,24 @@ return view.extend({
         pool_v6_size.datatype = 'integer';
         pool_v6_size.placeholder = 65535;
 
-        let fs = s.taboption('fake_dns', form.SectionValue, "fake_dns_section", form.GridSection, 'fakedns', _('FakeDNS Routing'), _('See <a href="https://github.com/v2ray/v2ray-core/issues/2233">FakeDNS</a> for details.')).subsection;
-        fs.sortable = false;
-        fs.anonymous = true;
-        fs.addremove = true;
+        let fake_dns_section = s.taboption('fake_dns', form.SectionValue, "fake_dns_section", form.GridSection, 'fakedns', _('FakeDNS Routing'), _('See <a href="https://github.com/v2ray/v2ray-core/issues/2233">FakeDNS</a> for details.')).subsection;
+        fake_dns_section.sortable = false;
+        fake_dns_section.anonymous = true;
+        fake_dns_section.addremove = true;
 
-        let fake_dns_domain_names = fs.option(form.DynamicList, "fake_dns_domain_names", _("Domain names"));
+        let fake_dns_domain_names = fake_dns_section.option(form.DynamicList, "fake_dns_domain_names", _("Domain names"));
         fake_dns_domain_names.rmempty = false;
         fake_dns_domain_names.textvalue = list_folded_format(config_data, "fake_dns_domain_names", "domains", 20);
 
-        let fake_dns_forward_server_tcp = fs.option(form.MultiValue, 'fake_dns_forward_server_tcp', _('Force Forward server (TCP)'));
+        let fake_dns_forward_server_tcp = fake_dns_section.option(form.MultiValue, 'fake_dns_forward_server_tcp', _('Force Forward server (TCP)'));
         fake_dns_forward_server_tcp.datatype = "uciname";
         fake_dns_forward_server_tcp.textvalue = destination_format(config_data, "fake_dns_forward_server_tcp", null, 40);
 
-        let fake_dns_forward_server_udp = fs.option(form.MultiValue, 'fake_dns_forward_server_udp', _('Force Forward server (UDP)'));
+        let fake_dns_forward_server_udp = fake_dns_section.option(form.MultiValue, 'fake_dns_forward_server_udp', _('Force Forward server (UDP)'));
         fake_dns_forward_server_udp.datatype = "uciname";
         fake_dns_forward_server_udp.textvalue = destination_format(config_data, "fake_dns_forward_server_udp", null, 40);
 
-        let fake_dns_balancer_strategy = fs.option(form.Value, 'fake_dns_balancer_strategy', _('Balancer Strategy'), _('Strategy <code>leastPing</code> requires observatory, and <code>leastLoad</code> requires burstObservatory (see "Observatory" under "Outbound Routing").'));
+        let fake_dns_balancer_strategy = fake_dns_section.option(form.Value, 'fake_dns_balancer_strategy', _('Balancer Strategy'), _('Strategy <code>leastPing</code> requires observatory, and <code>leastLoad</code> requires burstObservatory (see "Observatory" under "Outbound Routing").'));
         fake_dns_balancer_strategy.value("random");
         fake_dns_balancer_strategy.value("leastPing");
         fake_dns_balancer_strategy.value("leastLoad");
@@ -893,18 +1104,31 @@ return view.extend({
         custom_configuration_hook.rows = 20;
 
         const servers = uci.sections(config_data, "servers");
-        for (let selection of [destination, fake_dns_forward_server_tcp, fake_dns_forward_server_udp, tcp_balancer_v4, tcp_balancer_v6, udp_balancer_v4, udp_balancer_v6, bridge_upstream, force_forward_server_tcp, force_forward_server_udp, dialer_proxy, observatory_servers]) {
-            if (servers.length == 0) {
+        const subscriptions = uci.sections(config_data, "subscriptions");
+        const all_outbounds = [...servers, ...subscriptions];
+        for (let selection of [destination, fake_dns_forward_server_tcp, fake_dns_forward_server_udp, tcp_balancer_v4, tcp_balancer_v6, udp_balancer_v4, udp_balancer_v6, bridge_upstream, force_forward_server_tcp, force_forward_server_udp, observatory_servers]) {
+            if (all_outbounds.length == 0) {
                 selection.value("direct", _("No server configured"));
                 selection.readonly = true;
                 continue;
             }
+            for (const v of all_outbounds) {
+                selection.value(v[".name"], server_alias(v, sub_caches));
+            }
+        }
+        for (const v of all_outbounds) {
+            sub_outbound_proxy.value(v[".name"], server_alias(v, sub_caches));
+        }
+        if (servers.length == 0) {
+            dialer_proxy.value("direct", _("No server configured"));
+            dialer_proxy.readonly = true;
+        } else {
             for (const v of servers) {
-                selection.value(v[".name"], server_alias(v));
+                dialer_proxy.value(v[".name"], server_alias(v, sub_caches));
             }
         }
         for (const v of servers) {
-            geodata_outbound.value(v[".name"], server_alias(v));
+            geodata_outbound.value(v[".name"], server_alias(v, sub_caches));
         }
         return m.render();
     }

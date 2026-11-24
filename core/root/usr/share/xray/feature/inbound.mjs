@@ -2,7 +2,7 @@
 
 import { https_trojan_inbound } from "../protocol/trojan.mjs";
 import { https_vless_inbound } from "../protocol/vless.mjs";
-import { balancer } from "./system.mjs";
+import { balancer, resolve_balancer_strategy } from "./system.mjs";
 
 export function dokodemo_inbound(listen, port, tag, sniffing, sniffing_route_only, sniffing_dest_override, sniffing_metadata_only, network, tproxy, timeout) {
     let result = {
@@ -122,15 +122,15 @@ export function extra_inbound_rules(extra_inbound) {
     return result;
 };
 
-export function extra_inbound_balancers(extra_inbound) {
+export function extra_inbound_balancers(extra_inbound, config) {
     let result = [];
     for (let e in extra_inbound) {
         if (e["specify_outbound"] == "1") {
             push(result, {
                 "tag": `extra_inbound_outbound:${e[".name"]}`,
-                "selector": balancer(e, "destination", `extra_inbound:${e[".name"]}`),
+                "selector": balancer(e, "destination", `extra_inbound:${e[".name"]}`, config),
                 "strategy": {
-                    "type": e["balancer_strategy"] || "random"
+                    "type": resolve_balancer_strategy(e, "destination", e["balancer_strategy"] || "random", config)
                 }
             });
         }

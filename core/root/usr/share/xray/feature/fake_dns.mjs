@@ -1,6 +1,6 @@
 "use strict";
 
-import { balancer } from "./system.mjs";
+import { balancer, resolve_balancer_strategy } from "./system.mjs";
 
 export function fake_dns_domains(fakedns) {
     let domains = [];
@@ -37,20 +37,21 @@ export function fake_dns_rules(fakedns) {
     return result;
 };
 
-export function fake_dns_balancers(fakedns) {
+export function fake_dns_balancers(fakedns, config) {
     let result = [];
     for (let f in fakedns) {
+        const default_strategy = f["fake_dns_balancer_strategy"] || "random";
         push(result, {
             "tag": `fake_dns_balancer:${f[".name"]}@tcp_balancer`,
-            "selector": balancer(f, "fake_dns_forward_server_tcp", `fake_dns_tcp:${f[".name"]}`),
+            "selector": balancer(f, "fake_dns_forward_server_tcp", `fake_dns_tcp:${f[".name"]}`, config),
             "strategy": {
-                "type": f["fake_dns_balancer_strategy"] || "random"
+                "type": resolve_balancer_strategy(f, "fake_dns_forward_server_tcp", default_strategy, config)
             }
         }, {
             "tag": `fake_dns_balancer:${f[".name"]}@udp_balancer`,
-            "selector": balancer(f, "fake_dns_forward_server_udp", `fake_dns_udp:${f[".name"]}`),
+            "selector": balancer(f, "fake_dns_forward_server_udp", `fake_dns_udp:${f[".name"]}`, config),
             "strategy": {
-                "type": f["fake_dns_balancer_strategy"] || "random"
+                "type": resolve_balancer_strategy(f, "fake_dns_forward_server_udp", default_strategy, config)
             }
         });
     }

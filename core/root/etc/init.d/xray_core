@@ -139,9 +139,45 @@ flush_when_disable() {
     flush_firewall
 }
 
+append_subscription_cron() {
+    local section="$1"
+    local interval
+    config_get interval "$section" update_interval
+    [ -n "$interval" ] && echo "$interval /usr/share/xray/subscription_update.uc $section # luci-app-xray-sub" >> /tmp/xray_sub_cron.tmp
+}
+
+setup_subscription_cron() {
+    local cron_file="/etc/crontabs/root"
+    mkdir -p /etc/crontabs
+    rm -f /tmp/xray_sub_cron.tmp
+    if [ -f "$cron_file" ]; then
+        grep -v "# luci-app-xray-sub" "$cron_file" > /tmp/xray_sub_cron.tmp 2>/dev/null || true
+    else
+        touch /tmp/xray_sub_cron.tmp
+    fi
+    config_foreach append_subscription_cron subscriptions
+    if [ ! -f "$cron_file" ] || ! cmp -s /tmp/xray_sub_cron.tmp "$cron_file"; then
+        mv /tmp/xray_sub_cron.tmp "$cron_file"
+        /etc/init.d/cron restart > /dev/null 2>&1 || true
+    else
+        rm -f /tmp/xray_sub_cron.tmp
+    fi
+}
+
+flush_subscription_cron() {
+    local cron_file="/etc/crontabs/root"
+    [ -f "$cron_file" ] || return 0
+    if grep -q "# luci-app-xray-sub" "$cron_file"; then
+        grep -v "# luci-app-xray-sub" "$cron_file" > /tmp/xray_sub_cron.tmp 2>/dev/null || true
+        mv /tmp/xray_sub_cron.tmp "$cron_file"
+        /etc/init.d/cron restart > /dev/null 2>&1 || true
+    fi
+}
+
 start_service() {
     config_load $NAME
-    mkdir -p /var/run /var/etc/xray
+    mkdir -p /var/run /var/etc/xray /etc/xray/subscriptions
+    setup_subscription_cron
     local xray_bin=$(uci_get_by_type general xray_bin)
     command -v ${xray_bin} > /dev/null 2>&1 || return 1
     gen_config_file
@@ -150,6 +186,7 @@ start_service() {
 }
 
 stop_service() {
+    flush_subscription_cron
     flush_when_disable
 }
 

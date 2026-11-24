@@ -3,7 +3,16 @@
         "description": "Grant access to xray configurations",
         "read": {
             "file": {
+                "/etc/xray/subscriptions": [
+                    "list"
+                ],
+                "/etc/xray/subscriptions/*": [
+                    "read"
+                ],
                 "/usr/bin/xray": [
+                    "exec"
+                ],
+                "/usr/share/xray/subscription_update.uc": [
                     "exec"
                 ],
                 "/usr/share/xray/xray": [
