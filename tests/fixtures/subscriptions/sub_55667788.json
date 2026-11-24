@@ -1,0 +1,41 @@
+{
+  "updated_at": 1764007200,
+  "status": "ok",
+  "error": null,
+  "meta": {
+    "title": "Second Sub",
+    "upload": 1073741824,
+    "download": 2147483648,
+    "total": 10737418240
+  },
+  "nodes": [
+    {
+      "remarks": "FI Node",
+      "protocol": "trojan",
+      "network": "tcp",
+      "security": "tls",
+      "address": "198.51.100.20",
+      "port": 443,
+      "outbound": {
+        "tag": "proxy",
+        "protocol": "trojan",
+        "settings": {
+          "servers": [
+            {
+              "address": "198.51.100.20",
+              "port": 443,
+              "password": "secret-password"
+            }
+          ]
+        },
+        "streamSettings": {
+          "network": "tcp",
+          "security": "tls",
+          "tlsSettings": {
+            "serverName": "fi.example.org"
+          }
+        }
+      }
+    }
+  ]
+}

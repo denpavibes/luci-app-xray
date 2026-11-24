@@ -1,0 +1,77 @@
+[
+  {
+    "remarks": "Node One [XHTTP]",
+    "outbounds": [
+      {
+        "tag": "proxy",
+        "protocol": "vless",
+        "settings": {
+          "vnext": [
+            {
+              "address": "198.51.100.1",
+              "port": 443,
+              "users": [
+                {
+                  "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                  "encryption": "none"
+                }
+              ]
+            }
+          ]
+        },
+        "streamSettings": {
+          "network": "xhttp",
+          "xhttpSettings": {
+            "mode": "auto",
+            "host": "cdn.example.com",
+            "path": "/",
+            "extra": {
+              "xmux": {
+                "maxConcurrency": "16-32"
+              }
+            }
+          },
+          "security": "reality",
+          "realitySettings": {
+            "serverName": "cdn.example.com",
+            "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "fingerprint": "chrome"
+          }
+        }
+      },
+      { "tag": "direct", "protocol": "freedom" },
+      { "tag": "block", "protocol": "blackhole" }
+    ]
+  },
+  {
+    "remarks": "Node Two [Vision]",
+    "outbounds": [
+      {
+        "tag": "proxy",
+        "protocol": "vless",
+        "settings": {
+          "vnext": [
+            {
+              "address": "198.51.100.2",
+              "port": 8443,
+              "users": [
+                {
+                  "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                  "encryption": "none",
+                  "flow": "xtls-rprx-vision"
+                }
+              ]
+            }
+          ]
+        },
+        "streamSettings": {
+          "network": "tcp",
+          "security": "tls",
+          "tlsSettings": {
+            "serverName": "two.example.com"
+          }
+        }
+      }
+    ]
+  }
+]

@@ -1,0 +1,80 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+
+jobs:
+  test:
+    name: Run Test Suite (All 4 Layers)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Build & Lint Tools
+        run: |
+          sudo apt-get update
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y --no-install-recommends \
+            build-essential cmake libjson-c-dev pkg-config shellcheck unzip curl
+
+      - name: Build and Cache ucode
+        uses: actions/cache@v4
+        id: cache-ucode
+        with:
+          path: ~/ucode-install
+          key: ucode-${{ runner.os }}-v1
+
+      - name: Compile ucode if not cached
+        if: steps.cache-ucode.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 https://github.com/jow-/ucode.git /tmp/ucode
+          mkdir -p /tmp/ucode/build
+          cd /tmp/ucode/build
+          cmake \
+            -DCMAKE_INSTALL_PREFIX=~/ucode-install \
+            -DUCI_SUPPORT=OFF -DUBUS_SUPPORT=OFF -DULOOP_SUPPORT=OFF -DNL80211_SUPPORT=OFF -DRTNL_SUPPORT=OFF ..
+          make -j"$(nproc)"
+          make install
+
+      - name: Install ucode & utpl symlinks
+        run: |
+          sudo cp -a ~/ucode-install/* /usr/local/
+          sudo ln -sf /usr/local/bin/ucode /usr/local/bin/utpl
+          sudo ldconfig
+
+      - name: Cache Xray-core
+        uses: actions/cache@v4
+        id: cache-xray
+        with:
+          path: ~/xray-bin
+          key: xray-core-${{ runner.os }}-latest
+
+      - name: Download Xray-core if not cached
+        if: steps.cache-xray.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/xray-bin
+          curl -fsSL -L -o /tmp/xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
+          unzip -q /tmp/xray.zip -d ~/xray-bin
+          chmod +x ~/xray-bin/xray
+
+      - name: Install Xray-core & geodata assets
+        run: |
+          sudo install -m 0755 ~/xray-bin/xray /usr/local/bin/xray
+          sudo mkdir -p /usr/share/xray
+          sudo install -m 0644 ~/xray-bin/geoip.dat /usr/share/xray/geoip.dat
+          sudo install -m 0644 ~/xray-bin/geosite.dat /usr/share/xray/geosite.dat
+
+      - name: Run full test suite
+        run: |
+          chmod +x tests/run.sh tests/xray_validate.sh
+          bash tests/run.sh --all

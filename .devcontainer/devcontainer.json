@@ -1,0 +1,42 @@
+{
+    "name": "luci-app-xray",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "features": {
+        "ghcr.io/devcontainers/features/node:1": {
+            "version": "22"
+        },
+        "ghcr.io/devcontainers/features/github-cli:1": {}
+    },
+    "runArgs": [
+        "-e",
+        "GIT_EDITOR=code --wait"
+    ],
+    "mounts": [
+        "source=luci-app-xray-antigravity,target=/home/vscode/.gemini,type=volume"
+    ],
+    "updateContentCommand": "sudo chown -R $(whoami): /home/vscode/.gemini",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "timonwong.shellcheck",
+                "redhat.vscode-yaml",
+                "GitHub.vscode-pull-request-github",
+                "esbenp.prettier-vscode"
+            ],
+            "settings": {
+                "files.associations": {
+                    "*.uc": "javascript",
+                    "*.mjs": "javascript"
+                },
+                "[javascript]": {
+                    "editor.tabSize": 4
+                },
+                "[json]": {
+                    "editor.tabSize": 2
+                }
+            }
+        }
+    }
+}

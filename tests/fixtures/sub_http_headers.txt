@@ -1,0 +1,13 @@
+HTTP/1.1 302 Found
+Location: https://sub.example.com/final
+
+HTTP/2 200
+content-type: application/json; charset=utf-8
+content-disposition: attachment; filename=fallback_name
+subscription-userinfo: upload=1073741824; download=85006518823; total=0; expire=1797676221
+subscription-refill-date: 1796084400
+profile-title: base64:R2V0Qml0IFZQTg==
+profile-web-page-url: https://vpn.example.com
+support-url: https://t.me/example_bot
+profile-update-interval: 24
+announce: base64:U21hcnQgUm91dGUgVGVzdA==

@@ -1,11 +1,14 @@
 # AGENTS.md
 
 ## Repository Shape
-- This is an OpenWrt package repository, not a standalone JS app. There is no npm/test runner config in this repo.
+- This is an OpenWrt package repository, not a standalone JS app. There is no npm `package.json`/`node_modules`; automated tests live in `tests/` (zero-dependency Node built-in `node --test`, `ucode`, `utpl`, `xray run -test`, and `shellcheck`) with a `.devcontainer/` setup.
 - Packages live in `core/`, `geodata/`, and `status/`; each has its own OpenWrt `Makefile` and installs files from its `root/` tree.
 - The base package name is `luci-app-xray` from `core/Makefile`; optional packages are `luci-app-xray-geodata` and `luci-app-xray-status`.
 
 ## Build / Verification
+- Run `bash tests/run.sh --all` (in `.devcontainer` or Linux with `ucode`, `xray`, `shellcheck`, and `node` 22+) and ensure all 4 layers pass before finishing changes.
+- On Windows hosts without `ucode`/`xray`, run at minimum `node --test tests/static.test.mjs tests/luci_views.test.mjs` and ensure all tests pass.
+- Keep `tests/` outside `*/root/` so test files are never packaged into `.ipk`/`.apk` artifacts.
 - Build from an OpenWrt SDK tree with this repo linked as `package/luci-app-xray`, then run `./scripts/feeds update -a`, `./scripts/feeds install -a`, `make defconfig`.
 - CI builds only the status target with `make package/luci-app-xray/status/{clean,compile} V=s` on OpenWrt SDK `23.05.5` x86_64; use that command as the closest verified package build smoke test.
 - For full local checks, compile the package subdir you changed, for example `make package/luci-app-xray/core/{clean,compile} V=s`, `make package/luci-app-xray/geodata/{clean,compile} V=s`, or `make package/luci-app-xray/status/{clean,compile} V=s`.
