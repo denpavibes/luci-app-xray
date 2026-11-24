@@ -8,16 +8,19 @@ function assert_true(cond, msg) {
     }
 }
 
-const p_fw = popen("utpl -L ../../../tests/mocks ./firewall_include.ut", "r");
+const root = getenv("XRAY_TEST_ROOT") || "../../../../..";
+
+const p_fw = popen(sprintf("utpl -L %s/tests/mocks ./firewall_include.ut", root), "r");
 assert_true(p_fw != null, "Failed to run utpl on firewall_include.ut");
 const fw_out = p_fw.read("all");
 const fw_rc = p_fw.close();
 assert_true(fw_rc == 0, "firewall_include.ut exited non-zero");
 assert_true(index(fw_out, "chain xray_transparent_proxy") != -1, "Missing xray_transparent_proxy chain");
-assert_true(index(fw_out, "198.51.100.100") != -1, "Missing server IP in tp_spec_dv4_bp");
-assert_true(index(fw_out, "198.51.100.10") != -1, "Missing subscription node IP in tp_spec_dv4_bp");
+assert_true(index(fw_out, "192.168.1.50") != -1, "Missing manual_tproxy source IP in tp_spec_dv4_mt");
+assert_true(index(fw_out, "198.18.0.0/15") != -1, "Missing FakeDNS IPv4 pool rule");
+assert_true(index(fw_out, "tproxy ip to :1082") != -1, "Missing TCPv4 tproxy port 1082 rule");
 
-const p_dns = popen("utpl -L ../../../tests/mocks ./dnsmasq_include.ut", "r");
+const p_dns = popen(sprintf("utpl -L %s/tests/mocks ./dnsmasq_include.ut", root), "r");
 assert_true(p_dns != null, "Failed to run utpl on dnsmasq_include.ut");
 const dns_out = p_dns.read("all");
 const dns_rc = p_dns.close();

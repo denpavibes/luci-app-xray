@@ -7,7 +7,7 @@ main() {
             ;;
         call)
             shift
-            xray api $@
+            xray api "$@"
     esac
 }
 

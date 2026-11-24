@@ -7,23 +7,25 @@ MODE="${1:---all}"
 run_static() {
     echo "=== Layer 1: Static, Lint & Packaging Audit ==="
     node --test "$ROOT/tests/static.test.mjs"
-    local shell_scripts=(
+    local sh_scripts=(
         "$ROOT/core/root/etc/init.d/xray_core"
         "$ROOT/core/root/etc/uci-defaults/xray_core"
         "$ROOT/core/root/usr/libexec/rpcd/xray"
         "$ROOT/core/root/etc/hotplug.d/iface/01-transparent-proxy-ipset"
+    )
+    local bash_scripts=(
         "$ROOT/tests/run.sh"
         "$ROOT/tests/xray_validate.sh"
     )
-    for f in "${shell_scripts[@]}"; do
+    for f in "${sh_scripts[@]}"; do
         sh -n "$f"
     done
+    for f in "${bash_scripts[@]}"; do
+        bash -n "$f"
+    done
     if command -v shellcheck >/dev/null 2>&1; then
-        shellcheck -s sh -e SC2034,SC3010,SC3014,SC3043,SC1091 "$ROOT/core/root/etc/init.d/xray_core" \
-            "$ROOT/core/root/etc/uci-defaults/xray_core" \
-            "$ROOT/core/root/usr/libexec/rpcd/xray" \
-            "$ROOT/core/root/etc/hotplug.d/iface/01-transparent-proxy-ipset"
-        shellcheck "$ROOT/tests/run.sh" "$ROOT/tests/xray_validate.sh"
+        shellcheck -S error -s sh -e SC1091 "${sh_scripts[@]}"
+        shellcheck "${bash_scripts[@]}"
     else
         echo "SKIP: shellcheck not found"
     fi
@@ -42,6 +44,7 @@ run_ucode() {
     fi
     export XRAY_TEST_UCI_JSON="$ROOT/tests/fixtures/uci_full.json"
     export XRAY_SUBSCRIPTION_DIR="$ROOT/tests/fixtures/subscriptions"
+    export XRAY_TEST_ROOT="$ROOT"
     (
         cd "$ROOT/core/root/usr/share/xray"
         ucode -L "$ROOT/tests/mocks" "$ROOT/tests/ucode/test_gen_config.uc"

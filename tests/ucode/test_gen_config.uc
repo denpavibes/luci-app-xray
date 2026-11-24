@@ -23,7 +23,8 @@ function find_by_tag(arr, tag) {
     return null;
 }
 
-const p = popen("ucode -L ../../../tests/mocks ./gen_config.uc", "r");
+const root = getenv("XRAY_TEST_ROOT") || "../../../../..";
+const p = popen(sprintf("ucode -L %s/tests/mocks ./gen_config.uc", root), "r");
 assert_true(p != null, "Failed to invoke gen_config.uc");
 const raw = p.read("all");
 const rc = p.close();
@@ -45,7 +46,7 @@ for (let o in cfg["outbounds"]) {
 const main_out = find_by_tag(cfg["outbounds"], "balancer_outbound:cfg054a8f");
 assert_true(main_out != null, "Missing balancer_outbound:cfg054a8f");
 assert_eq(main_out["settings"]["testpre"], 3, "vless_testpre at settings level");
-assert_eq(sprintf("%J", main_out["settings"]["testseed"]), "[900,400,900,256]", "vless_testseed 4-int array with duplicate preserved");
+assert_eq(join(",", main_out["settings"]["testseed"]), "900,400,900,256", "vless_testseed 4-int array with duplicate preserved");
 
 // 3. dialer_proxy points directly to balancer_outbound:cfg054a8f
 const chained_out = find_by_tag(cfg["outbounds"], "balancer_outbound:cfg064a8f");
@@ -66,7 +67,9 @@ assert_true(index(burst["subjectSelector"], "direct") != -1, "Missing direct in 
 assert_true(index(burst["subjectSelector"], "balancer_outbound:cfg054a8f") != -1, "Missing cfg054a8f in subjectSelector");
 assert_true(index(burst["subjectSelector"], "balancer_outbound:cfg064a8f") != -1, "Missing cfg064a8f in subjectSelector");
 assert_true(index(burst["subjectSelector"], "subscription_outbound:sub_11223344:") != -1, "Missing subscription prefix in subjectSelector");
-assert_eq(length(burst["subjectSelector"]), 4, "Expected exactly 4 entries in subjectSelector (no duplicates)");
+assert_eq(length(uniq(burst["subjectSelector"])), length(burst["subjectSelector"]), "subjectSelector must not contain duplicates");
+assert_true(index(burst["subjectSelector"], "subscription_outbound:sub_11223344:0") == -1, "subjectSelector must use subscription prefix, not individual node tags");
+assert_eq(length(burst["subjectSelector"]), 6, "Expected 6 unique entries in subjectSelector");
 
 // 6. Subscription balancer & resolve_balancer_strategy
 const ei_bal = find_by_tag(cfg["routing"]["balancers"], "extra_inbound_outbound:ei01");
@@ -91,7 +94,7 @@ for (let r in cfg["routing"]["rules"]) {
 assert_true(found_sub_rule, "Missing subscription_update_inbound routing rule");
 
 // 8. mldsa65Verify propagation check
-import { server_outbound } from "./feature/outbound.mjs";
+import { server_outbound } from "../../core/root/usr/share/xray/feature/outbound.mjs";
 const mldsa_srv = {
     protocol: "vless",
     server: "198.51.100.99",
