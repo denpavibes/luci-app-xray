@@ -37,8 +37,8 @@ function format_sub_usage(cache) {
     const parts = [];
     if (m.upload !== undefined || m.download !== undefined) {
         const used = (m.upload || 0) + (m.download || 0);
-        const total = m.total > 0 ? '%.2mB'.format(m.total) : '∞';
-        parts.push(`${'%.2mB'.format(used)} / ${total}`);
+        const total = m.total > 0 ? '%1024.2mB'.format(m.total) : '∞';
+        parts.push(`${'%1024.2mB'.format(used)} / ${total}`);
     }
     if (m.expire && m.expire > 0) {
         const d = new Date(m.expire * 1000);

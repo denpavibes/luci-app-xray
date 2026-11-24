@@ -331,8 +331,8 @@ function outbound_stats(vars, config, sub_caches) {
                 E('th', { 'class': 'th' }, _('Uplink')),
             ]), ...Object.entries(vars["stats"]["outbound"]).map((v, index, arr) => E('tr', { 'class': `tr cbi-rowstyle-${index % 2 + 1}` }, [
                 E('td', { 'class': 'td' }, get_outbound_description(config, v[0], sub_caches)),
-                E('td', { 'class': 'td' }, '%.2mB'.format(v[1]["downlink"])),
-                E('td', { 'class': 'td' }, '%.2mB'.format(v[1]["uplink"])),
+                E('td', { 'class': 'td' }, '%1024.2mB'.format(v[1]["downlink"])),
+                E('td', { 'class': 'td' }, '%1024.2mB'.format(v[1]["uplink"])),
             ]))
         ])
     ];
@@ -355,8 +355,8 @@ function inbound_stats(vars, config) {
                 E('th', { 'class': 'th' }, _('Uplink')),
             ]), ...Object.entries(vars["stats"]["inbound"]).map((v, index, arr) => E('tr', { 'class': `tr cbi-rowstyle-${index % 2 + 1}` }, [
                 E('td', { 'class': 'td' }, get_inbound_uci_description(config, v[0])),
-                E('td', { 'class': 'td' }, '%.2mB'.format(v[1]["downlink"])),
-                E('td', { 'class': 'td' }, '%.2mB'.format(v[1]["uplink"])),
+                E('td', { 'class': 'td' }, '%1024.2mB'.format(v[1]["downlink"])),
+                E('td', { 'class': 'td' }, '%1024.2mB'.format(v[1]["uplink"])),
             ]))
         ])
     ];
@@ -392,9 +392,9 @@ function subscriptions_tab(vars, config, sub_caches) {
             blocks.push(E('p', { 'class': 'cbi-map-descr' }, meta.announce));
         }
 
-        const upload_str = meta.upload !== undefined ? '%.2mB'.format(meta.upload) : '-';
-        const download_str = meta.download !== undefined ? '%.2mB'.format(meta.download) : '-';
-        const total_str = meta.total !== undefined ? (meta.total > 0 ? '%.2mB'.format(meta.total) : _('Unlimited')) : '-';
+        const upload_str = meta.upload !== undefined ? '%1024.2mB'.format(meta.upload) : '-';
+        const download_str = meta.download !== undefined ? '%1024.2mB'.format(meta.download) : '-';
+        const total_str = meta.total !== undefined ? (meta.total > 0 ? '%1024.2mB'.format(meta.total) : _('Unlimited')) : '-';
         const refill_str = (meta.refill_date && meta.refill_date > 0) ? new Date(meta.refill_date * 1000).toLocaleString() : '-';
         const expire_str = (meta.expire && meta.expire > 0) ? new Date(meta.expire * 1000).toLocaleString() : '-';
         const updated_str = (cache && cache.updated_at) ? new Date(cache.updated_at * 1000).toLocaleString() : _('Never');
